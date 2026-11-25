@@ -161,7 +161,7 @@ function Hero({ reducedMotion }: { reducedMotion: boolean }) {
             <a className="button button-primary hero-primary" href="#/events">
               Explore events <Icon name="arrowRight" />
             </a>
-            <a className="button button-ghost" href="#about">
+            <a className="button button-ghost" href="#/how-it-works">
               How it works
             </a>
           </div>
@@ -207,7 +207,7 @@ function EventsSection({
           </div>
         </div>
         {events.length > 0 ? (
-          <div className="page-event-grid">
+          <div className="page-event-grid upcoming-event-grid">
             {events.map((event) => (
               <article className="page-event-card" key={event.id}>
                 <img src={event.image} alt={event.imageAlt} loading="lazy" decoding="async" />
@@ -307,36 +307,6 @@ function CategoriesSection({
   );
 }
 
-function HowItWorks() {
-  const steps = [
-    { number: "01", title: "Discover", text: "Find the events, people and places that pull you in." },
-    { number: "02", title: "Book", text: "Choose your tickets and get the details sorted." },
-    { number: "03", title: "Experience", text: "Show up and make a night of it." },
-  ];
-
-  return (
-    <section className="how-section section-anchor" id="about" aria-labelledby="how-title">
-      <div className="page-wrap">
-        <div className="how-heading">
-          <p className="section-kicker">How it works</p>
-          <h2 id="how-title">How TickShow<br /><span>works</span></h2>
-        </div>
-        <div className="steps-grid">
-          {steps.map((step) => (
-            <article className="step" key={step.number}>
-              <span className="step-number">{step.number}</span>
-              <div className="step-copy">
-                <h3>{step.title}</h3>
-                <p>{step.text}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function PromoSection() {
   return (
     <section className="promo-section" aria-labelledby="promo-title">
@@ -381,6 +351,7 @@ function Footer() {
           <div className="footer-link-column">
             <h2>Company</h2>
             <a href="#/about">About us</a>
+            <a href="#/how-it-works">How it works</a>
             <a href="#/contact">Contact</a>
             <a href="#/terms">Terms &amp; conditions</a>
             <a href="#/privacy">Privacy policy</a>
@@ -493,6 +464,7 @@ const FOOTER_ROUTES: FooterPageKey[] = [
   "upcoming",
   "categories",
   "about",
+  "how-it-works",
   "contact",
   "terms",
   "privacy",
@@ -617,7 +589,6 @@ function App() {
             reducedMotion={reducedMotion}
           />
           <CategoriesSection activeCategory={activeCategory} onSelect={selectCategory} />
-          <HowItWorks />
           <PromoSection />
         </main>
       </>

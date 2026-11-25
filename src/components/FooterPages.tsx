@@ -11,6 +11,7 @@ export type FooterPageKey =
   | "upcoming"
   | "categories"
   | "about"
+  | "how-it-works"
   | "contact"
   | "terms"
   | "privacy"
@@ -33,7 +34,7 @@ type PageData = {
 };
 
 const INFO_PAGES: Record<
-  Exclude<FooterPageKey, "events" | "upcoming" | "categories">,
+  Exclude<FooterPageKey, "events" | "upcoming" | "categories" | "how-it-works">,
   PageData
 > = {
   about: {
@@ -258,6 +259,7 @@ const PAGE_TITLES: Record<FooterPageKey, string> = {
   upcoming: "Upcoming events",
   categories: "Categories",
   about: "About us",
+  "how-it-works": "How it works",
   contact: "Contact",
   terms: "Terms & conditions",
   privacy: "Privacy policy",
@@ -275,6 +277,12 @@ const CATEGORY_ICONS: IconName[] = [
   "workshop",
   "business",
   "experience",
+];
+
+const HOW_IT_WORKS_STEPS = [
+  { number: "01", title: "Discover", text: "Find the events, people and places that pull you in." },
+  { number: "02", title: "Book", text: "Choose your tickets and get the details sorted." },
+  { number: "03", title: "Experience", text: "Show up and make a night of it." },
 ];
 
 function PageShell({
@@ -437,6 +445,31 @@ export default function FooterPage({
               <Icon name="arrowRight" size={16} />
             </a>
           ))}
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (page === "how-it-works") {
+    return (
+      <PageShell
+        kicker="How it works"
+        title="How TickShow"
+        accent="works"
+        intro="Three simple steps from finding a night out to being in the middle of it."
+      >
+        <div className="footer-page-content">
+          <div className="steps-grid">
+            {HOW_IT_WORKS_STEPS.map((step) => (
+              <article className="step" key={step.number}>
+                <span className="step-number">{step.number}</span>
+                <div className="step-copy">
+                  <h3>{step.title}</h3>
+                  <p>{step.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </PageShell>
     );
