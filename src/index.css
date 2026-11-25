@@ -472,6 +472,72 @@ textarea:focus-visible {
   min-width: 176px;
 }
 
+/* Hero actions are frosted glass panels. Scoped here so other site buttons
+   keep their solid styling. */
+.hero-actions .button {
+  border-color: rgba(255, 255, 255, 0.34);
+  background-color: rgba(255, 255, 255, 0.1);
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.26) 0%,
+    rgba(255, 255, 255, 0.02) 45%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  color: #fff;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.42),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.16),
+    0 12px 30px rgba(0, 0, 0, 0.24);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+.hero-actions .button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.65);
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.hero-actions .button:active {
+  transform: scale(0.98);
+}
+
+.hero-actions .button-primary {
+  border-color: rgba(169, 221, 54, 0.6);
+  background-color: rgba(169, 221, 54, 0.22);
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.3) 0%,
+    rgba(169, 221, 54, 0.05) 45%,
+    rgba(169, 221, 54, 0.16) 100%
+  );
+  color: #f6ffe9;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.5),
+    inset -1px -1px 0 rgba(4, 14, 4, 0.18),
+    0 12px 34px rgba(169, 221, 54, 0.2),
+    0 4px 16px rgba(0, 0, 0, 0.24);
+}
+
+.hero-actions .button-primary:hover {
+  border-color: rgba(169, 221, 54, 0.85);
+  background-color: rgba(169, 221, 54, 0.3);
+}
+
+.hero-actions .button-ghost:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hero-actions .button {
+    background-color: rgba(18, 18, 18, 0.78);
+  }
+
+  .hero-actions .button-primary {
+    background-color: rgba(169, 221, 54, 0.84);
+  }
+}
+
 /* Events section headings */
 
 .section-kicker {
@@ -1092,10 +1158,108 @@ textarea:focus-visible {
 /* Footer */
 
 .site-footer {
-  padding-block: 72px calc(32px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--line);
+  padding-block: 32px calc(32px + env(safe-area-inset-bottom, 0px));
   background: var(--surface);
   color: var(--ink);
+}
+
+/* Frosted admission ticket. The reveal layer supplies the lime field that
+   shows through the glass and through the two punched edge notches. */
+.footer-ticket {
+  --ticket-ink: var(--footer-ink, var(--ink));
+  --ticket-rule: var(--footer-rule, var(--line));
+  --ticket-cut: var(--footer-field, var(--paper));
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ticket-rule);
+  border-radius: 24px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.06) 48%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.45),
+    inset -1px -1px 0 rgba(4, 14, 14, 0.2),
+    0 2px 0 rgba(4, 14, 14, 0.16),
+    0 6px 0 rgba(4, 14, 14, 0.08),
+    0 24px 60px rgba(4, 14, 14, 0.2);
+  color: var(--ticket-ink);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .footer-ticket {
+    background: rgba(248, 250, 240, 0.82);
+  }
+}
+
+.footer-ticket::before,
+.footer-ticket::after {
+  position: absolute;
+  top: 40px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ticket-cut);
+  content: "";
+  transform: translateY(-50%);
+}
+
+.footer-ticket::before {
+  left: -14px;
+}
+
+.footer-ticket::after {
+  right: -14px;
+}
+
+.ticket-header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 28px;
+  border-bottom: 1px dashed var(--ticket-rule);
+  font-family: var(--footer-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ticket-admit {
+  font-weight: 600;
+}
+
+.ticket-series {
+  color: var(--footer-ink-feint, var(--ink-2));
+}
+
+.ticket-serial {
+  color: var(--footer-ink-feint, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-body {
+  padding: 16px;
+}
+
+.ticket-barcode {
+  width: 80px;
+  height: 20px;
+  flex: 0 0 auto;
+  background: repeating-linear-gradient(
+    90deg,
+    currentColor 0 2px,
+    transparent 2px 5px,
+    currentColor 5px 6px,
+    transparent 6px 9px
+  );
+  opacity: 0.5;
 }
 
 .site-footer .brand {
@@ -1105,14 +1269,20 @@ textarea:focus-visible {
 .footer-main {
   display: grid;
   grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr));
-  gap: 40px;
-  padding-bottom: 48px;
-  border-bottom: 1px solid var(--line);
+  gap: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--ticket-rule, var(--line));
+}
+
+.footer-bottom-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .footer-brand-block p {
   max-width: 280px;
-  margin: 16px 0 20px;
+  margin: 8px 0;
   color: var(--ink-2);
   font-size: 15px;
 }
@@ -1146,11 +1316,11 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 0;
 }
 
 .footer-link-column h2 {
-  margin: 0 0 6px;
+  margin: 0 0 2px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;
@@ -1177,13 +1347,21 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
+@media (min-width: 901px) {
+  .footer-link-column a,
+  .footer-link-column button,
+  .social-links a {
+    min-height: 36px;
+  }
+}
+
 .footer-bottom {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px 24px;
-  padding-top: 24px;
+  gap: 6px 12px;
+  padding-top: 12px;
   color: var(--muted);
   font-size: 13px;
 }
@@ -2764,13 +2942,17 @@ textarea:focus-visible {
     gap: 32px;
   }
 
-  .footer-main {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    row-gap: 32px;
+  .ticket-header {
+    padding-inline: 20px;
   }
 
-  .footer-brand-block {
-    grid-column: 1 / -1;
+  .ticket-body {
+    padding: 20px;
+  }
+
+  .footer-main {
+    gap: 16px;
+    padding-bottom: 16px;
   }
 
   .auth-main {
@@ -2789,6 +2971,18 @@ textarea:focus-visible {
 
   .auth-card {
     max-width: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .auth-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    padding-block: 8px;
+    background: rgba(0, 0, 0, 0.94);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
   }
 }
 
@@ -2862,9 +3056,41 @@ textarea:focus-visible {
     padding: 14px;
   }
 
+  .ticket-header {
+    padding-inline: 12px;
+  }
+
+  .ticket-body {
+    padding: 12px;
+  }
+
+  .ticket-series {
+    display: none;
+  }
+
   .footer-main {
-    gap: 28px 20px;
-    padding-bottom: 32px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 12px;
+    padding-bottom: 16px;
+  }
+
+  .footer-brand-block {
+    grid-column: 1 / -1;
+  }
+
+  .footer-link-column {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 8px;
+  }
+
+  .footer-link-column h2 {
+    grid-column: 1 / -1;
+  }
+
+  .footer-link-column a,
+  .footer-link-column button {
+    min-width: 0;
   }
 
   .footer-bottom {
@@ -2903,6 +3129,12 @@ textarea:focus-visible {
 
   .auth-card h1 {
     font-size: 34px;
+  }
+}
+
+@media (max-width: 360px) {
+  .footer-link-column {
+    grid-template-columns: 1fr;
   }
 }
 

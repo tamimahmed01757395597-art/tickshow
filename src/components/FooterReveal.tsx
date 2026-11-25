@@ -1,17 +1,18 @@
 "use client";
 
 import { motion, useMotionTemplate, useScroll, useTransform } from "motion/react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
 
 /**
  * Footer reveal - sticky under-page footer that fades, scales and sharpens
  * as scroll uncovers it.
  *
- * A page cover sits at z-index 1. The footer sticks underneath at z-index -1
- * as a lime plane (the site accent, kept from the existing palette). Opacity,
- * scale and blur stay at 0 / 0.9 / 6px until the cover's bottom meets the
- * viewport bottom, then scrub to 1 / 1 / 0 across one footer-height of scroll.
+ * A page cover sits above the footer. The footer sticks underneath as a lime
+ * plane (the site accent, kept from the existing palette). Opacity, scale and
+ * blur stay at 0 / 0.9 / 6px until the cover's bottom meets the viewport
+ * bottom, then scrub to 1 / 1 / 0 across one footer-height of scroll. A shared
+ * normalized progress keeps all three effects in sync on every screen size.
  */
 export default function FooterReveal({
   content,
@@ -22,23 +23,24 @@ export default function FooterReveal({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLElement>(null);
-  const [revealAt, setRevealAt] = useState(0.35);
+  const revealAtRef = useRef(0.35);
 
   useLayoutEffect(() => {
-    const footer = footerRef.current;
-    if (!footer) return;
+    const footerEl = footerRef.current;
+    if (!footerEl) return;
 
     const update = () => {
-      const footerHeight = footer.offsetHeight;
+      const footerHeight = footerEl.offsetHeight;
       const viewportHeight = window.innerHeight || 1;
-      setRevealAt(
-        Math.min(0.95, Math.max(0.05, footerHeight / viewportHeight)),
+      revealAtRef.current = Math.min(
+        0.95,
+        Math.max(0.05, footerHeight / viewportHeight),
       );
     };
 
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(footer);
+    observer.observe(footerEl);
     window.addEventListener("resize", update);
     return () => {
       observer.disconnect();
@@ -50,15 +52,19 @@ export default function FooterReveal({
     target: contentRef,
     offset: ["end end", "end start"],
   });
-  const opacity = useTransform(scrollYProgress, [0, revealAt], [0, 1]);
-  const scale = useTransform(scrollYProgress, [0, revealAt], [0.9, 1]);
-  const blur = useTransform(scrollYProgress, [0, revealAt], [6, 0]);
+  const revealProgress = useTransform(scrollYProgress, (progress) => {
+    const end = revealAtRef.current;
+    return end > 0 ? Math.min(1, Math.max(0, progress / end)) : 1;
+  });
+  const opacity = useTransform(revealProgress, [0, 1], [0, 1]);
+  const scale = useTransform(revealProgress, [0, 1], [0.9, 1]);
+  const blur = useTransform(revealProgress, [0, 1], [6, 0]);
   const filter = useMotionTemplate`blur(${blur}px)`;
-  const opacityWillChange = useTransform(scrollYProgress, (progress) =>
-    progress > 0.0001 && progress < revealAt ? "opacity" : "auto",
+  const opacityWillChange = useTransform(revealProgress, (progress) =>
+    progress > 0.0001 && progress < 1 ? "opacity" : "auto",
   );
-  const contentWillChange = useTransform(scrollYProgress, (progress) =>
-    progress > 0.0001 && progress < revealAt ? "transform, filter" : "auto",
+  const contentWillChange = useTransform(revealProgress, (progress) =>
+    progress > 0.0001 && progress < 1 ? "transform, filter" : "auto",
   );
 
   return (
@@ -131,7 +137,7 @@ function StyleSheet() {
 
       #tickshow-footer-reveal .content {
         position: relative;
-        z-index: 1;
+        z-index: 2;
         width: 100%;
         max-width: 100%;
         overflow-x: clip;
@@ -141,7 +147,7 @@ function StyleSheet() {
       #tickshow-footer-reveal .reveal-footer {
         position: sticky;
         bottom: 0;
-        z-index: -1;
+        z-index: 0;
         width: 100%;
         max-width: 100%;
         margin: 0;
@@ -172,8 +178,39 @@ function StyleSheet() {
 
       #tickshow-footer-reveal .site-footer .page-wrap {
         box-sizing: border-box;
-        width: min(calc(100% - 56px), 1080px);
-        padding-block: 72px calc(48px + env(safe-area-inset-bottom, 0px));
+        width: min(calc(100% - 56px), 1160px);
+        padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px));
+      }
+
+      #tickshow-footer-reveal .site-footer .footer-ticket {
+        border-color: rgba(255, 255, 255, 0.45) color-mix(in srgb, var(--footer-ink) 22%, transparent)
+          color-mix(in srgb, var(--footer-ink) 22%, transparent) rgba(255, 255, 255, 0.45);
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.24) 0%,
+          rgba(255, 255, 255, 0.08) 48%,
+          rgba(255, 255, 255, 0.16) 100%
+        );
+        box-shadow:
+          inset 1px 1px 0 rgba(255, 255, 255, 0.5),
+          inset -1px -1px 0 rgba(4, 14, 14, 0.22),
+          0 2px 0 rgba(4, 14, 14, 0.18),
+          0 6px 0 rgba(4, 14, 14, 0.08),
+          0 24px 60px rgba(4, 14, 14, 0.2);
+      }
+
+      #tickshow-footer-reveal .site-footer .footer-ticket::before,
+      #tickshow-footer-reveal .site-footer .footer-ticket::after {
+        background: var(--footer-field);
+      }
+
+      #tickshow-footer-reveal .site-footer .ticket-header {
+        border-bottom-color: var(--footer-rule);
+        color: var(--footer-ink);
+      }
+
+      #tickshow-footer-reveal .site-footer .ticket-barcode {
+        color: var(--footer-ink);
       }
 
       #tickshow-footer-reveal .site-footer .brand,
@@ -183,8 +220,8 @@ function StyleSheet() {
       }
 
       #tickshow-footer-reveal .site-footer .footer-main {
-        padding-bottom: 40px;
-        border-bottom: 1px solid var(--footer-rule);
+        padding-bottom: 16px;
+        border-bottom: 1px dashed var(--footer-rule);
       }
 
       #tickshow-footer-reveal .site-footer .footer-brand-block p {
@@ -204,6 +241,7 @@ function StyleSheet() {
       }
 
       #tickshow-footer-reveal .site-footer .footer-link-column h2 {
+        margin-bottom: 2px;
         font-family: var(--footer-mono);
         font-size: 11px;
         font-weight: 560;
@@ -235,12 +273,26 @@ function StyleSheet() {
 
       @media (max-width: 640px) {
         #tickshow-footer-reveal .site-footer .page-wrap {
-          width: min(calc(100% - 40px), 1080px);
-          padding-block: 56px calc(40px + env(safe-area-inset-bottom, 0px));
+          width: min(calc(100% - 40px), 1160px);
+          padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px));
+        }
+
+        #tickshow-footer-reveal .site-footer .ticket-header {
+          padding-inline: 12px;
+        }
+
+        #tickshow-footer-reveal .site-footer .ticket-body {
+          padding: 12px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-main {
-          gap: 28px 20px;
+          gap: 16px 12px;
+          padding-bottom: 16px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column a,
+        #tickshow-footer-reveal .site-footer .footer-link-column button {
+          font-size: 12px;
         }
       }
 
@@ -250,15 +302,19 @@ function StyleSheet() {
         #tickshow-footer-reveal .reveal-footer {
           position: relative;
           bottom: auto;
-          z-index: 1;
+          z-index: 0;
         }
 
         #tickshow-footer-reveal .site-footer .page-wrap {
-          padding-block: 40px calc(32px + env(safe-area-inset-bottom, 0px));
+          padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        }
+
+        #tickshow-footer-reveal .site-footer .ticket-body {
+          padding: 8px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-main {
-          padding-bottom: 24px;
+          padding-bottom: 16px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-brand-block .social-links {

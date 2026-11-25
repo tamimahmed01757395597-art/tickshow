@@ -332,46 +332,57 @@ function Footer() {
   return (
     <div className="site-footer">
       <div className="page-wrap">
-        <div className="footer-main">
-          <div className="footer-brand-block">
-            <Brand />
-            <p>Live events across Manikganj, Dhaka, all in one place.</p>
-            <div className="social-links" aria-label="Social media">
-              <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
-              <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
-              <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
+        <div className="footer-ticket">
+          <div className="ticket-header" aria-hidden="true">
+            <span className="ticket-admit">Admit one</span>
+            <span className="ticket-series">TickShow / Manikganj</span>
+            <span className="ticket-serial">No. TS-{year}-001</span>
+          </div>
+          <div className="ticket-body">
+            <div className="footer-main">
+              <div className="footer-brand-block">
+                <Brand />
+                <div className="social-links" aria-label="Social media">
+                  <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
+                  <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
+                  <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
+                </div>
+              </div>
+              <div className="footer-link-column">
+                <h2>Explore</h2>
+                <a href="#/events">Explore events</a>
+                <a href="#/categories">Categories</a>
+                <a href="#/upcoming">Upcoming events</a>
+              </div>
+              <div className="footer-link-column">
+                <h2>Company</h2>
+                <a href="#/about">About us</a>
+                <a href="#/how-it-works">How it works</a>
+                <a href="#/contact">Contact</a>
+                <a href="#/terms">Terms &amp; conditions</a>
+                <a href="#/privacy">Privacy policy</a>
+              </div>
+              <div className="footer-link-column">
+                <h2>Support</h2>
+                <a href="#/help">Help center</a>
+                <a href="#/faqs">FAQs</a>
+                <a href="#/support">Booking support</a>
+              </div>
+            </div>
+            <div className="footer-bottom">
+              <div className="footer-bottom-copy">
+                <span>Copyright {year} TickShow. All rights reserved.</span>
+                <span className="footer-motto">The show is better in person.</span>
+              </div>
+              <div className="ticket-barcode" aria-hidden="true" />
+              <div className="social-links footer-social-compact" aria-label="Social media">
+                <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
+                <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
+                <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
+              </div>
+              <a href="#home">Back to top</a>
             </div>
           </div>
-          <div className="footer-link-column">
-            <h2>Explore</h2>
-            <a href="#/events">Explore events</a>
-            <a href="#/categories">Categories</a>
-            <a href="#/upcoming">Upcoming events</a>
-          </div>
-          <div className="footer-link-column">
-            <h2>Company</h2>
-            <a href="#/about">About us</a>
-            <a href="#/how-it-works">How it works</a>
-            <a href="#/contact">Contact</a>
-            <a href="#/terms">Terms &amp; conditions</a>
-            <a href="#/privacy">Privacy policy</a>
-          </div>
-          <div className="footer-link-column">
-            <h2>Support</h2>
-            <a href="#/help">Help center</a>
-            <a href="#/faqs">FAQs</a>
-            <a href="#/support">Booking support</a>
-          </div>
-        </div>
-        <div className="footer-bottom">
-          <span>Copyright {year} TickShow. All rights reserved.</span>
-          <span className="footer-motto">The show is better in person.</span>
-          <div className="social-links footer-social-compact" aria-label="Social media">
-            <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
-            <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
-            <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
-          </div>
-          <a href="#home">Back to top</a>
         </div>
       </div>
     </div>
