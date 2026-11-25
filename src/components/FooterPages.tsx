@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { EVENT_CATEGORIES } from "../data/events";
 import type { TickShowEvent } from "../data/events";
+import Brand from "./Brand";
 import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
 
@@ -40,12 +41,12 @@ const INFO_PAGES: Record<
     title: "Live music,",
     accent: "real moments",
     intro:
-      "TickShow is a home for the nights you'll talk about later. We bring New York's concerts, games, festivals and shows into one simple place.",
+      "TickShow is a home for the nights you'll talk about later. We bring Manikganj's concerts, games, festivals and shows into one simple place.",
     sections: [
       {
         heading: "What we do",
         paragraphs: [
-          "We collect events from across the city and put them in one clear, browsable feed. Find something by category, see the important details up front, and get straight to the organizer's official ticketing link.",
+          "We collect events from across Manikganj, Dhaka and put them in one clear, browsable feed. See the important details up front, and get straight to the organizer's official ticketing link.",
           "No clutter, no endless tabs. Just the plans worth making.",
         ],
       },
@@ -58,7 +59,7 @@ const INFO_PAGES: Record<
       {
         heading: "The team",
         paragraphs: [
-          "TickShow is a small group of New Yorkers who go to too many shows and never stop talking about the next one. This is a frontend preview built to show the idea, not a live ticketing service.",
+          "TickShow is a small group of Manikganj locals who go to too many shows and never stop talking about the next one. This is a frontend preview built to show the idea, not a live ticketing service.",
         ],
       },
     ],
@@ -81,7 +82,7 @@ const INFO_PAGES: Record<
       {
         heading: "Office",
         paragraphs: [
-          "TickShow, 128 Lafayette Street, New York, NY 10013. We're usually around on weekdays, 10am–6pm ET.",
+          "TickShow, Manikganj, Dhaka, Bangladesh. We're usually around on weekdays, 10am–6pm BST.",
         ],
       },
     ],
@@ -214,7 +215,7 @@ const INFO_PAGES: Record<
       {
         heading: "Event details",
         paragraphs: [
-          "Select any event card to open a panel with the date, venue, price and status. Booking is not available in this preview.",
+          "Select any event card to open its own page with the lineup, date, venue, price and status. Booking is not available in this preview.",
         ],
       },
       {
@@ -253,7 +254,7 @@ const INFO_PAGES: Record<
 };
 
 const PAGE_TITLES: Record<FooterPageKey, string> = {
-  events: "All events",
+  events: "Explore events",
   upcoming: "Upcoming events",
   categories: "Categories",
   about: "About us",
@@ -292,20 +293,7 @@ function PageShell({
   return (
     <div className="footer-page">
       <div className="auth-topbar">
-        <a className="brand" href="#home" aria-label="TickShow home">
-          <svg className="brand-mark" viewBox="0 0 34 34" aria-hidden="true">
-            <path
-              d="M3 4h28v7c-4 0-4 10 0 10v9H3v-9c4 0 4-10 0-10Z"
-              fill="currentColor"
-            />
-            <path d="M17 10v14M12 12h10" stroke="var(--ink)" strokeWidth="3" />
-            <path d="M8 13v9" stroke="var(--ink)" strokeWidth="1.5" strokeDasharray="1.5 2" />
-          </svg>
-          <span className="brand-word">
-            <span>Tick</span>
-            <span>Show</span>
-          </span>
-        </a>
+        <Brand />
         <a className="auth-home-link" href="#home">
           <Icon name="arrowLeft" size={16} /> Back to home
         </a>
@@ -345,7 +333,7 @@ function EventGrid({
               {event.date} · {event.venue}
             </p>
             <div className="page-event-foot">
-              <strong>${event.price}</strong>
+              <strong>৳{event.price}</strong>
               <button type="button" onClick={() => onOpenEvent(event)}>
                 Details <Icon name="arrowRight" size={16} />
               </button>
@@ -424,9 +412,9 @@ export default function FooterPage({
     return (
       <PageShell
         kicker="The lineup"
-        title={page === "events" ? "All" : "Upcoming"}
+        title={page === "events" ? "Explore" : "Upcoming"}
         accent="events"
-        intro="Every show, game and gathering currently on the TickShow preview. Pick a card for the full details."
+        intro="Every show, game and gathering across Manikganj, Dhaka. Pick a card for the full details."
       >
         <EventGrid events={events} onOpenEvent={onOpenEvent} />
       </PageShell>

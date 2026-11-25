@@ -7,6 +7,8 @@ export type IconName =
   | "chevronDown"
   | "menu"
   | "close"
+  | "plus"
+  | "minus"
   | "mapPin"
   | "calendar"
   | "mail"
@@ -42,6 +44,8 @@ const ICON_SHAPES: Record<IconName, ReactNode> = {
       <path d="M19 5 5 19" />
     </>
   ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
   mapPin: (
     <>
       <path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" />

@@ -235,7 +235,7 @@ export default function CoverflowCarousel({
     <div className="carousel cf-carousel">
       <div className="carousel-toolbar">
         <p className="cf-hint">
-          Drag to explore <span aria-hidden="true">↔</span>
+          Drag to revisit <span aria-hidden="true">↔</span>
         </p>
         <div className="carousel-controls">
           <span className="carousel-count">
@@ -265,7 +265,7 @@ export default function CoverflowCarousel({
         className={dragging ? "cf-viewport is-dragging" : "cf-viewport"}
         role="region"
         aria-roledescription="carousel"
-        aria-label="Event lineup"
+        aria-label="Past events lineup"
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -303,8 +303,8 @@ export default function CoverflowCarousel({
           </div>
           <div className="cf-caption-side">
             <p className="cf-price">
-              <span>From</span>
-              <strong>${active.price}</strong>
+              <span>From (BDT)</span>
+              <strong>৳{active.price}</strong>
             </p>
             <button className="cf-details" type="button" onClick={() => onOpenEvent(active)}>
               View details <Arrow direction="right" />
@@ -313,7 +313,7 @@ export default function CoverflowCarousel({
         </div>
       )}
 
-      <div className="cf-dots" aria-label="Choose an event">
+      <div className="cf-dots" aria-label="Choose a past event">
         {events.map((event, index) => (
           <button
             key={event.id}

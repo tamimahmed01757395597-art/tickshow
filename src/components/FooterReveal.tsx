@@ -173,7 +173,7 @@ function StyleSheet() {
       #tickshow-footer-reveal .site-footer .page-wrap {
         box-sizing: border-box;
         width: min(calc(100% - 56px), 1080px);
-        padding-block: 72px 48px;
+        padding-block: 72px calc(48px + env(safe-area-inset-bottom, 0px));
       }
 
       #tickshow-footer-reveal .site-footer .brand,
@@ -236,11 +236,37 @@ function StyleSheet() {
       @media (max-width: 640px) {
         #tickshow-footer-reveal .site-footer .page-wrap {
           width: min(calc(100% - 40px), 1080px);
-          padding-block: 56px 40px;
+          padding-block: 56px calc(40px + env(safe-area-inset-bottom, 0px));
         }
 
         #tickshow-footer-reveal .site-footer .footer-main {
           gap: 28px 20px;
+        }
+      }
+
+      @media (max-height: 720px) {
+        /* A tall sticky footer clips its own top on short screens. Let it flow,
+           and keep social links in the always-visible bottom row instead. */
+        #tickshow-footer-reveal .reveal-footer {
+          position: relative;
+          bottom: auto;
+          z-index: 1;
+        }
+
+        #tickshow-footer-reveal .site-footer .page-wrap {
+          padding-block: 40px calc(32px + env(safe-area-inset-bottom, 0px));
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-main {
+          padding-bottom: 24px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-brand-block .social-links {
+          display: none;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-social-compact {
+          display: flex;
         }
       }
     `}</style>

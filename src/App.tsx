@@ -1,37 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { TICKSHOW_EVENTS } from "./data/events";
+import { useEffect, useMemo, useState } from "react";
+import { PAST_TICKSHOW_EVENTS, TICKSHOW_EVENTS } from "./data/events";
 import type { EventCategory, TickShowEvent } from "./data/events";
+import Brand from "./components/Brand";
+import CheckoutPage from "./components/CheckoutPage";
 import CoverflowCarousel from "./components/CoverflowCarousel";
+import EventPage from "./components/EventPage";
+import OrderPage from "./components/OrderPage";
+import { findBooking } from "./data/bookings";
 import { Icon } from "./components/Icon";
 import type { IconName } from "./components/Icon";
 import FooterPage from "./components/FooterPages";
 import type { FooterPageKey } from "./components/FooterPages";
 import FooterReveal from "./components/FooterReveal";
 
-function Brand() {
-  return (
-    <a className="brand" href="#home" aria-label="TickShow home">
-      <svg className="brand-mark" viewBox="0 0 34 34" aria-hidden="true">
-        <path
-          d="M3 4h28v7c-4 0-4 10 0 10v9H3v-9c4 0 4-10 0-10Z"
-          fill="currentColor"
-        />
-        <path d="M17 10v14M12 12h10" stroke="var(--ink)" strokeWidth="3" />
-        <path d="M8 13v9" stroke="var(--ink)" strokeWidth="1.5" strokeDasharray="1.5 2" />
-      </svg>
-      <span className="brand-word">
-        <span>Tick</span>
-        <span>Show</span>
-      </span>
-    </a>
-  );
-}
-
 const NAV_ITEMS = [
-  { label: "Home", id: "home" },
-  { label: "Explore events", id: "events" },
-  { label: "Categories", id: "categories" },
-  { label: "About us", id: "about" },
+  { label: "Home", href: "#home", id: "home" },
+  { label: "Explore events", href: "#/events" },
+  { label: "About us", href: "#/about" },
 ];
 
 function Header() {
@@ -47,28 +32,6 @@ function Header() {
   }, []);
 
   useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-
-    const sectionIds = NAV_ITEMS.map((item) => item.id);
-    const sections = sectionIds
-      .map((id) => document.getElementById(id))
-      .filter((section): section is HTMLElement => section !== null);
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const active = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((first, second) => second.intersectionRatio - first.intersectionRatio)[0];
-        if (active) setActiveLink(active.target.id);
-      },
-      { rootMargin: "-30% 0px -58% 0px", threshold: [0, 0.15, 0.35] },
-    );
-
-    sections.forEach((section) => observer.observe(section));
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setMenuOpen(false);
     };
@@ -76,18 +39,18 @@ function Header() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const handleNavClick = (id: string) => {
-    setActiveLink(id);
+  const handleNavClick = (id?: string) => {
+    if (id) setActiveLink(id);
     setMenuOpen(false);
   };
 
   const navLinks = (mobile = false) =>
     NAV_ITEMS.map((item) => (
       <a
-        key={item.id}
-        href={`#${item.id}`}
-        className={activeLink === item.id ? "nav-link is-active" : "nav-link"}
-        aria-current={activeLink === item.id ? "location" : undefined}
+        key={item.label}
+        href={item.href}
+        className={item.id && activeLink === item.id ? "nav-link is-active" : "nav-link"}
+        aria-current={item.id && activeLink === item.id ? "location" : undefined}
         onClick={() => handleNavClick(item.id)}
         tabIndex={mobile && !menuOpen ? -1 : undefined}
       >
@@ -185,17 +148,17 @@ function Hero({ reducedMotion }: { reducedMotion: boolean }) {
         <div className="hero-copy">
           <p className="hero-eyebrow">
             <span className="eyebrow-mark" aria-hidden="true" />
-            New York City · Live events
+            Manikganj, Dhaka · Live events
           </p>
           <h1 id="hero-title">
             <span>Don't just watch</span>
             <span className="hero-accent">Be there</span>
           </h1>
           <p className="hero-description">
-            Concerts, games, festivals and theatre across New York, in one place.
+            Concerts, games, festivals and theatre across Manikganj, Dhaka, in one place.
           </p>
           <div className="hero-actions">
-            <a className="button button-primary hero-primary" href="#events">
+            <a className="button button-primary hero-primary" href="#/events">
               Explore events <Icon name="arrowRight" />
             </a>
             <a className="button button-ghost" href="#about">
@@ -244,11 +207,26 @@ function EventsSection({
           </div>
         </div>
         {events.length > 0 ? (
-          <CoverflowCarousel
-            events={events}
-            onOpenEvent={onOpenEvent}
-            reducedMotion={reducedMotion}
-          />
+          <div className="page-event-grid">
+            {events.map((event) => (
+              <article className="page-event-card" key={event.id}>
+                <img src={event.image} alt={event.imageAlt} loading="lazy" decoding="async" />
+                <div className="page-event-body">
+                  <span className="page-event-tag">{event.category}</span>
+                  <h3>{event.title}</h3>
+                  <p className="page-event-meta">
+                    {event.date} <span aria-hidden="true">·</span> {event.venue}
+                  </p>
+                  <div className="page-event-foot">
+                    <strong>৳{event.price}</strong>
+                    <button type="button" onClick={() => onOpenEvent(event)}>
+                      Details <Icon name="arrowRight" size={16} />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         ) : (
           <div className="empty-results" role="status">
             <span className="empty-kicker">No matches</span>
@@ -258,6 +236,23 @@ function EventsSection({
             </button>
           </div>
         )}
+
+        <div className="events-past">
+          <div className="events-heading">
+            <div className="events-title-block">
+              <p className="section-kicker">The archive</p>
+              <h2>Past <span>events</span></h2>
+            </div>
+            <div className="events-heading-side">
+              <p>Nights that already happened, in one place.</p>
+            </div>
+          </div>
+          <CoverflowCarousel
+            events={PAST_TICKSHOW_EVENTS}
+            onOpenEvent={onOpenEvent}
+            reducedMotion={reducedMotion}
+          />
+        </div>
       </div>
     </section>
   );
@@ -351,8 +346,8 @@ function PromoSection() {
           <h2 id="promo-title">There's always<br /><span>something on</span></h2>
         </div>
         <div className="promo-action">
-          <p>Concerts, games, festivals and shows across New York.</p>
-          <a className="button button-primary" href="#events">
+          <p>Concerts, games, festivals and shows across Manikganj, Dhaka.</p>
+          <a className="button button-primary" href="#/events">
             Find your next event <Icon name="arrowRight" />
           </a>
         </div>
@@ -370,7 +365,7 @@ function Footer() {
         <div className="footer-main">
           <div className="footer-brand-block">
             <Brand />
-            <p>Live events across New York, all in one place.</p>
+            <p>Live events across Manikganj, Dhaka, all in one place.</p>
             <div className="social-links" aria-label="Social media">
               <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
               <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
@@ -379,7 +374,7 @@ function Footer() {
           </div>
           <div className="footer-link-column">
             <h2>Explore</h2>
-            <a href="#/events">All events</a>
+            <a href="#/events">Explore events</a>
             <a href="#/categories">Categories</a>
             <a href="#/upcoming">Upcoming events</a>
           </div>
@@ -400,6 +395,11 @@ function Footer() {
         <div className="footer-bottom">
           <span>Copyright {year} TickShow. All rights reserved.</span>
           <span className="footer-motto">The show is better in person.</span>
+          <div className="social-links footer-social-compact" aria-label="Social media">
+            <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
+            <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
+            <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
+          </div>
           <a href="#home">Back to top</a>
         </div>
       </div>
@@ -424,7 +424,7 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
           <img className="auth-photo" src={HERO_IMAGE} alt="" />
           <div className="auth-showcase-copy">
             <p className="auth-brandline">Don't just watch. Be there</p>
-            <p className="auth-brandnote">Live events across New York, all in one place.</p>
+            <p className="auth-brandnote">Live events across Manikganj, Dhaka, all in one place.</p>
           </div>
         </div>
         <section className="auth-panel" aria-labelledby="auth-title">
@@ -479,7 +479,14 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
   );
 }
 
-type Route = "home" | "login" | "signup" | FooterPageKey;
+type Route =
+  | { name: "home" }
+  | { name: "login" }
+  | { name: "signup" }
+  | { name: "event"; id: string }
+  | { name: "checkout"; id: string }
+  | { name: "order"; reference: string }
+  | { name: "page"; page: FooterPageKey };
 
 const FOOTER_ROUTES: FooterPageKey[] = [
   "events",
@@ -496,26 +503,32 @@ const FOOTER_ROUTES: FooterPageKey[] = [
 
 function getRoute(): Route {
   const hash = window.location.hash;
-  if (!hash.startsWith("#/")) return "home";
+  if (!hash.startsWith("#/")) return { name: "home" };
   const value = hash.slice(2).toLowerCase();
-  if (value === "login" || value === "signup") return value;
-  if (FOOTER_ROUTES.includes(value as FooterPageKey)) return value as FooterPageKey;
-  return "home";
+  if (value === "login" || value === "signup") return { name: value };
+  if (value.startsWith("event/")) {
+    return { name: "event", id: decodeURIComponent(value.slice("event/".length)) };
+  }
+  if (value.startsWith("checkout/")) {
+    return { name: "checkout", id: decodeURIComponent(value.slice("checkout/".length)) };
+  }
+  if (value.startsWith("order/")) {
+    return { name: "order", reference: decodeURIComponent(value.slice("order/".length)) };
+  }
+  if (FOOTER_ROUTES.includes(value as FooterPageKey)) {
+    return { name: "page", page: value as FooterPageKey };
+  }
+  return { name: "home" };
 }
 
-type ModalState =
-  | { kind: "event"; event: TickShowEvent }
-  | { kind: "info"; title: string; body: string }
-  | null;
+const ALL_EVENTS = [...TICKSHOW_EVENTS, ...PAST_TICKSHOW_EVENTS];
 
 function App() {
   const [activeCategory, setActiveCategory] = useState<EventCategory | "All">("All");
   const [reducedMotion, setReducedMotion] = useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
-  const [modal, setModal] = useState<ModalState>(null);
   const [route, setRoute] = useState<Route>(getRoute);
-  const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     const handleHashChange = () => setRoute(getRoute());
@@ -524,7 +537,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (route !== "home") {
+    if (route.name !== "home") {
       window.scrollTo({ top: 0, behavior: "auto" });
       return;
     }
@@ -539,13 +552,6 @@ function App() {
     mediaQuery.addEventListener("change", updateMotionPreference);
     return () => mediaQuery.removeEventListener("change", updateMotionPreference);
   }, []);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (modal && !dialog.open) dialog.showModal();
-    if (!modal && dialog.open) dialog.close();
-  }, [modal]);
 
   const matchingEvents = useMemo(
     () =>
@@ -571,16 +577,34 @@ function App() {
     window.setTimeout(() => scrollTo("events"), 20);
   };
 
-  const closeModal = () => setModal(null);
-
-  if (route === "login" || route === "signup") {
-    return <AuthPage key={route} mode={route} />;
+  if (route.name === "login" || route.name === "signup") {
+    return <AuthPage key={route.name} mode={route.name} />;
   }
 
-  const openEvent = (event: TickShowEvent) => setModal({ kind: "event", event });
+  const openEvent = (event: TickShowEvent) => {
+    window.location.hash = `#/event/${event.id}`;
+  };
 
-  const pageContent =
-    route === "home" ? (
+  const activeEvent =
+    route.name === "event"
+      ? ALL_EVENTS.find((event) => event.id === route.id)
+      : undefined;
+  const isPastEvent =
+    activeEvent !== undefined &&
+    PAST_TICKSHOW_EVENTS.some((event) => event.id === activeEvent.id);
+  const checkoutEvent =
+    route.name === "checkout"
+      ? ALL_EVENTS.find((event) => event.id === route.id)
+      : undefined;
+  const booking = route.name === "order" ? findBooking(route.reference) : undefined;
+  const bookingEvent =
+    booking !== undefined
+      ? ALL_EVENTS.find((event) => event.id === booking.eventId)
+      : undefined;
+
+  let pageContent;
+  if (route.name === "home") {
+    pageContent = (
       <>
         <Header />
         <main>
@@ -597,69 +621,41 @@ function App() {
           <PromoSection />
         </main>
       </>
+    );
+  } else if (route.name === "event") {
+    pageContent = activeEvent ? (
+      <EventPage event={activeEvent} isPast={isPastEvent} />
     ) : (
+      <FooterPage page="events" events={TICKSHOW_EVENTS} onOpenEvent={openEvent} />
+    );
+  } else if (route.name === "checkout") {
+    pageContent = checkoutEvent ? (
+      <CheckoutPage
+        event={checkoutEvent}
+        isPast={PAST_TICKSHOW_EVENTS.some((event) => event.id === checkoutEvent.id)}
+      />
+    ) : (
+      <FooterPage page="events" events={TICKSHOW_EVENTS} onOpenEvent={openEvent} />
+    );
+  } else if (route.name === "order") {
+    pageContent =
+      booking !== undefined && bookingEvent !== undefined ? (
+        <OrderPage booking={booking} event={bookingEvent} />
+      ) : (
+        <FooterPage page="events" events={TICKSHOW_EVENTS} onOpenEvent={openEvent} />
+      );
+  } else {
+    pageContent = (
       <FooterPage
-        key={route}
-        page={route}
+        key={route.page}
+        page={route.page}
         events={TICKSHOW_EVENTS}
         onOpenEvent={openEvent}
       />
     );
+  }
 
-  return (
-    <>
-      <FooterReveal content={pageContent} footer={<Footer />} />
-      <dialog
-        ref={dialogRef}
-        className="tick-dialog"
-        aria-labelledby={modal ? "dialog-title" : undefined}
-        onCancel={(event) => {
-          event.preventDefault();
-          closeModal();
-        }}
-        onClose={closeModal}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) closeModal();
-        }}
-      >
-        {modal && (
-          <div className="dialog-content">
-            <div className="dialog-topline">
-              <span>TickShow / {modal.kind === "event" ? "Event details" : "The fine print"}</span>
-              <button className="dialog-close" type="button" onClick={closeModal} aria-label="Close dialog">
-                <Icon name="close" size={18} />
-              </button>
-            </div>
-            {modal.kind === "event" && (
-              <div className="event-dialog-body">
-                <p className="dialog-kicker">{modal.event.category}</p>
-                <h2 id="dialog-title">{modal.event.title}</h2>
-                <div className="dialog-event-details">
-                  <div><span>Date &amp; time</span><strong>{modal.event.date}</strong><small>{modal.event.time}</small></div>
-                  <div><span>Venue</span><strong>{modal.event.venue}</strong><small>{modal.event.location}</small></div>
-                  <div><span>Tickets from</span><strong>${modal.event.price}</strong><small>{modal.event.status}</small></div>
-                </div>
-                <p className="dialog-disclaimer">This is sample event information. Ticket checkout and booking are not connected in this preview.</p>
-                <button className="button button-dark dialog-primary" type="button" onClick={closeModal}>
-                  Back to events <Icon name="arrowRight" size={18} />
-                </button>
-              </div>
-            )}
-            {modal.kind === "info" && (
-              <div className="info-dialog-body">
-                <p className="dialog-kicker">TickShow / Information</p>
-                <h2 id="dialog-title">{modal.title}</h2>
-                <p className="info-copy">{modal.body}</p>
-                <button className="button button-dark dialog-primary" type="button" onClick={closeModal}>
-                  Got it <Icon name="arrowRight" size={18} />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </dialog>
-    </>
-  );
+  return <FooterReveal content={pageContent} footer={<Footer />} />;
 }
 
 export default App;
