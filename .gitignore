@@ -1,2 +1,4 @@
 /.agents
 /.firecrawl
+/dist/
+/node_modules/
