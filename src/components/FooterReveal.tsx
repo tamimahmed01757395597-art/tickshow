@@ -119,7 +119,7 @@ function StyleSheet() {
       }
 
       #tickshow-footer-reveal.velocity-footer-reveal {
-        --footer-field: var(--accent);
+        --footer-field: color-mix(in srgb, var(--accent) 92%, #000);
         --footer-ink: #040e0e;
         --footer-ink-feint: color-mix(in srgb, var(--footer-ink) 62%, transparent);
         --footer-rule: color-mix(in srgb, var(--footer-ink) 18%, transparent);
