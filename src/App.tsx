@@ -544,8 +544,9 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
             )}
             {!configured && (
               <p className="auth-error" role="alert">
-                Backend setup: copy <code>.env.example</code> to <code>.env.local</code>, add your
-                public Supabase URL and anon key, then restart the dev server.
+                Backend setup: add <code>VITE_SUPABASE_URL</code> and{' '}
+                <code>VITE_SUPABASE_ANON_KEY</code> to Vercel Environment Variables and redeploy,
+                or to <code>.env.local</code> for local development.
               </p>
             )}
             <p className="auth-switch">

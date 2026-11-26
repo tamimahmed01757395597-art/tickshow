@@ -146,6 +146,8 @@ Copy `.env.example` to `.env.local` and fill values locally only.
 
 Real credentials are not committed. `.gitignore` ignores `.env` and `.env.*` except `.env.example`.
 
+For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
+
 If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0016` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands

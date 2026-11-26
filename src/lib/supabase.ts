@@ -25,7 +25,7 @@ export const supabase: SupabaseClient<Database> | null =
 export function requireSupabase(): SupabaseClient<Database> {
   if (!supabase) {
     throw new Error(
-      "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to a local .env file.",
+      "Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to Vercel Environment Variables and redeploy, or to a local .env.local file.",
     );
   }
   return supabase;
