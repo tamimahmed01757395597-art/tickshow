@@ -12,6 +12,7 @@ import type { IconName } from "./components/Icon";
 import FooterPage from "./components/FooterPages";
 import type { FooterPageKey } from "./components/FooterPages";
 import FooterReveal from "./components/FooterReveal";
+import AdminPanel from "./components/AdminPanel";
 
 const NAV_ITEMS = [
   { label: "Home", href: "#home", id: "home" },
@@ -485,6 +486,7 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
 
 type Route =
   | { name: "home" }
+  | { name: "admin" }
   | { name: "login" }
   | { name: "signup" }
   | { name: "event"; id: string }
@@ -510,6 +512,7 @@ function getRoute(): Route {
   const hash = window.location.hash;
   if (!hash.startsWith("#/")) return { name: "home" };
   const value = hash.slice(2).toLowerCase();
+  if (value === "admin") return { name: "admin" };
   if (value === "login" || value === "signup") return { name: value };
   if (value.startsWith("event/")) {
     return { name: "event", id: decodeURIComponent(value.slice("event/".length)) };
@@ -584,6 +587,9 @@ function App() {
 
   if (route.name === "login" || route.name === "signup") {
     return <AuthPage key={route.name} mode={route.name} />;
+  }
+  if (route.name === "admin") {
+    return <AdminPanel />;
   }
 
   const openEvent = (event: TickShowEvent) => {

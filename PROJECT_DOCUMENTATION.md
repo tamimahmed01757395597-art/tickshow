@@ -513,6 +513,7 @@ Stored under `localStorage["tickshow.bookings"]`, newest first, maximum 25. Refe
 | `#/event/<id>` | Event detail | Looks up both upcoming and past arrays |
 | `#/checkout/<id>` | Checkout | Past events show "Sales closed" |
 | `#/order/<reference>` | Confirmation | Looks up localStorage booking |
+| `#/admin` | Admin UI preview | No authentication, backend connection, production data or administrative actions |
 | `#/login`, `#/signup` | Auth preview | Rendered without footer reveal |
 | Anything else | Home | Safe fallback |
 
@@ -533,6 +534,7 @@ Route values are lowercased, and `event/`, `checkout/` and `order/` parameters a
 | `src/components/CheckoutPage.tsx` | 216 | Quantity stepper, attendee form, order summary, demo submit, sales-closed state. |
 | `src/components/EventPage.tsx` | 123 | Event detail, lineup, facts sidebar, ticket CTA, document title. |
 | `src/components/OrderPage.tsx` | 103 | Booking confirmation ticket stub and next actions. |
+| `src/components/AdminPanel.tsx` / `AdminPanel.css` | — | Responsive admin UI preview; metrics and management sections intentionally show no data or working admin operations until a backend is connected. |
 | `src/components/Icon.tsx` | 145 | 19 hand-drawn SVG icons and a typed `Icon` component. |
 | `src/components/Brand.tsx` | 18 | SVG ticket mark and TickShow wordmark. |
 | `src/data/events.ts` | 376 | Types, category list, 8 upcoming and 6 past sample events. |
