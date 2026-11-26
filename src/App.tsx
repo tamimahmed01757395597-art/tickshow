@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { PAST_TICKSHOW_EVENTS, TICKSHOW_EVENTS } from "./data/events";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { EventCategory, TickShowEvent } from "./data/events";
+import { useStorefrontEvents } from "./lib/storefront";
+import type { StorefrontEvent } from "./lib/storefront";
 import Brand from "./components/Brand";
 import CheckoutPage from "./components/CheckoutPage";
 import CoverflowCarousel from "./components/CoverflowCarousel";
@@ -13,6 +14,7 @@ import FooterPage from "./components/FooterPages";
 import type { FooterPageKey } from "./components/FooterPages";
 import FooterReveal from "./components/FooterReveal";
 import AdminPanel from "./components/AdminPanel";
+import { useAuth } from "./lib/auth";
 
 const NAV_ITEMS = [
   { label: "Home", href: "#home", id: "home" },
@@ -174,12 +176,16 @@ function Hero({ reducedMotion }: { reducedMotion: boolean }) {
 
 function EventsSection({
   events,
+  pastEvents,
+  carouselEvents,
   activeCategory,
   onClear,
   onOpenEvent,
   reducedMotion,
 }: {
-  events: TickShowEvent[];
+  events: StorefrontEvent[];
+  pastEvents: StorefrontEvent[];
+  carouselEvents: StorefrontEvent[];
   activeCategory: EventCategory | "All";
   onClear: () => void;
   onOpenEvent: (event: TickShowEvent) => void;
@@ -195,7 +201,7 @@ function EventsSection({
       <div className="page-wrap">
         <div className="events-heading">
           <div className="events-title-block">
-            <p className="section-kicker">Upcoming</p>
+            <p className="section-kicker">Upcoming &amp; ongoing</p>
             <h2 id="events-title">What's <span>happening?</span></h2>
           </div>
           <div className="events-heading-side">
@@ -241,15 +247,15 @@ function EventsSection({
         <div className="events-past">
           <div className="events-heading">
             <div className="events-title-block">
-              <p className="section-kicker">The archive</p>
-              <h2>Past <span>events</span></h2>
+              <p className="section-kicker">The lineup</p>
+              <h2>Featured <span>events</span></h2>
             </div>
             <div className="events-heading-side">
-              <p>Nights that already happened, in one place.</p>
+              <p>Highlights picked for the coverflow carousel.</p>
             </div>
           </div>
           <CoverflowCarousel
-            events={PAST_TICKSHOW_EVENTS}
+            events={carouselEvents.length ? carouselEvents : pastEvents}
             onOpenEvent={onOpenEvent}
             reducedMotion={reducedMotion}
           />
@@ -414,7 +420,54 @@ function Footer() {
 
 function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const isLogin = mode === "login";
+  const { configured, signIn, signUp, refresh } = useAuth();
+  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+
+    if (!configured) {
+      setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to a local .env file.");
+      return;
+    }
+
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "");
+    const password = String(form.get("password") ?? "");
+    const fullName = String(form.get("name") ?? "");
+    const inviteToken = String(form.get("inviteToken") ?? "");
+
+    setBusy(true);
+    try {
+      if (isLogin) {
+        await signIn(email, password);
+        // Let the admin panel perform the authoritative role check. The login
+        // page can otherwise show a false negative if role state is still being
+        // refreshed after the session change.
+        await refresh();
+        window.location.hash = "#/admin";
+        return;
+      }
+
+      const result = await signUp({ email, password, fullName, inviteToken });
+      const roles = await refresh();
+      if (result.needsConfirmation) {
+        setNotice("Account created. Confirm your email address, then log in to open the admin panel.");
+      } else if (roles.includes("admin")) {
+        window.location.hash = "#/admin";
+      } else {
+        setNotice("Account created as a customer. An administrator can assign additional roles.");
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="auth-page">
@@ -434,20 +487,14 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
         </div>
         <section className="auth-panel" aria-labelledby="auth-title">
           <div className="auth-card">
-            <p className="auth-card-kicker">Account</p>
+            <p className="auth-card-kicker">Administrator access</p>
             <h1 id="auth-title">{isLogin ? "Log in" : "Create an account"}</h1>
             <p className="auth-card-intro">
               {isLogin
-                ? "Use the email and password on your TickShow account."
-                : "One account for every plan you make."}
+                ? "Use the email and password of an authorized TickShow administrator."
+                : "One account for every plan you make. Add an admin invite token to create an administrator account."}
             </p>
-            <form
-              className="auth-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setNotice("This is a frontend preview. No account information was sent.");
-              }}
-            >
+            <form className="auth-form" onSubmit={handleSubmit}>
               {!isLogin && (
                 <>
                   <label htmlFor="auth-name">Full name</label>
@@ -465,18 +512,51 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
                 minLength={8}
                 required
               />
-              <button className="button button-primary auth-submit" type="submit">
-                {isLogin ? "Log in" : "Create account"} <Icon name="arrowRight" size={18} />
+              {!isLogin && (
+                <>
+                  <label htmlFor="auth-invite">Admin invitation token (optional)</label>
+                  <input
+                    id="auth-invite"
+                    name="inviteToken"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Leave blank for a customer account"
+                  />
+                  <p className="auth-field-hint">
+                    Only the token hash is stored. A token works once and must match this email.
+                  </p>
+                </>
+              )}
+              <button className="button button-primary auth-submit" type="submit" disabled={busy}>
+                {busy ? "Please wait…" : isLogin ? "Log in to admin" : "Create account"}{" "}
+                {!busy && <Icon name="arrowRight" size={18} />}
               </button>
             </form>
-            {notice && <p className="auth-notice" role="status">{notice}</p>}
+            {error && (
+              <p className="auth-error" role="alert">
+                {error}
+              </p>
+            )}
+            {notice && (
+              <p className="auth-notice" role="status">
+                {notice}
+              </p>
+            )}
+            {!configured && (
+              <p className="auth-error" role="alert">
+                Backend setup: copy <code>.env.example</code> to <code>.env.local</code>, add your
+                public Supabase URL and anon key, then restart the dev server.
+              </p>
+            )}
             <p className="auth-switch">
-              {isLogin ? "New to TickShow?" : "Already have an account?"}{" "}
+              {isLogin ? "Need an admin account?" : "Already have an admin account?"}{" "}
               <a href={isLogin ? "#/signup" : "#/login"}>
-                {isLogin ? "Create an account" : "Log in"}
+                {isLogin ? "Sign up with an invite" : "Log in"}
               </a>
             </p>
-            <p className="auth-card-note">This preview doesn't send any account data.</p>
+            <p className="auth-card-note">
+              Administrator roles are assigned by the database, never by the browser.
+            </p>
           </div>
         </section>
       </main>
@@ -529,7 +609,14 @@ function getRoute(): Route {
   return { name: "home" };
 }
 
-const ALL_EVENTS = [...TICKSHOW_EVENTS, ...PAST_TICKSHOW_EVENTS];
+function byDisplayOrder(a: StorefrontEvent, b: StorefrontEvent) {
+  const groupRank = { ongoing: 0, upcoming: 1, past: 2 } as const;
+  return (
+    groupRank[a.showcaseGroup] - groupRank[b.showcaseGroup] ||
+    a.displayOrder - b.displayOrder ||
+    a.title.localeCompare(b.title)
+  );
+}
 
 function App() {
   const [activeCategory, setActiveCategory] = useState<EventCategory | "All">("All");
@@ -537,6 +624,7 @@ function App() {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
   const [route, setRoute] = useState<Route>(getRoute);
+  const { events: showcaseEvents } = useStorefrontEvents();
 
   useEffect(() => {
     const handleHashChange = () => setRoute(getRoute());
@@ -561,15 +649,29 @@ function App() {
     return () => mediaQuery.removeEventListener("change", updateMotionPreference);
   }, []);
 
+  const liveEvents = useMemo(
+    () => showcaseEvents.filter((event) => event.showcaseGroup !== "past").sort(byDisplayOrder),
+    [showcaseEvents],
+  );
+  const pastEvents = useMemo(
+    () => showcaseEvents.filter((event) => event.showcaseGroup === "past").sort(byDisplayOrder),
+    [showcaseEvents],
+  );
+  const carouselEvents = useMemo(
+    () =>
+      showcaseEvents
+        .filter((event) => event.isCarousel)
+        .sort((a, b) => a.carouselOrder - b.carouselOrder || a.title.localeCompare(b.title)),
+    [showcaseEvents],
+  );
+
   const matchingEvents = useMemo(
     () =>
       activeCategory === "All"
-        ? TICKSHOW_EVENTS
-        : TICKSHOW_EVENTS.filter((event) => event.category === activeCategory),
-    [activeCategory],
+        ? liveEvents
+        : liveEvents.filter((event) => event.category === activeCategory),
+    [activeCategory, liveEvents],
   );
-
-  const displayedEvents = matchingEvents;
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({
@@ -597,20 +699,14 @@ function App() {
   };
 
   const activeEvent =
-    route.name === "event"
-      ? ALL_EVENTS.find((event) => event.id === route.id)
-      : undefined;
-  const isPastEvent =
-    activeEvent !== undefined &&
-    PAST_TICKSHOW_EVENTS.some((event) => event.id === activeEvent.id);
+    route.name === "event" ? showcaseEvents.find((event) => event.id === route.id) : undefined;
+  const isPastEvent = activeEvent?.showcaseGroup === "past";
   const checkoutEvent =
-    route.name === "checkout"
-      ? ALL_EVENTS.find((event) => event.id === route.id)
-      : undefined;
+    route.name === "checkout" ? showcaseEvents.find((event) => event.id === route.id) : undefined;
   const booking = route.name === "order" ? findBooking(route.reference) : undefined;
   const bookingEvent =
     booking !== undefined
-      ? ALL_EVENTS.find((event) => event.id === booking.eventId)
+      ? showcaseEvents.find((event) => event.id === booking.eventId)
       : undefined;
 
   let pageContent;
@@ -621,7 +717,9 @@ function App() {
         <main>
           <Hero reducedMotion={reducedMotion} />
           <EventsSection
-            events={displayedEvents}
+            events={matchingEvents}
+            pastEvents={pastEvents}
+            carouselEvents={carouselEvents}
             activeCategory={activeCategory}
             onClear={clearFilters}
             onOpenEvent={openEvent}
@@ -636,30 +734,27 @@ function App() {
     pageContent = activeEvent ? (
       <EventPage event={activeEvent} isPast={isPastEvent} />
     ) : (
-      <FooterPage page="events" events={TICKSHOW_EVENTS} onOpenEvent={openEvent} />
+      <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />
     );
   } else if (route.name === "checkout") {
     pageContent = checkoutEvent ? (
-      <CheckoutPage
-        event={checkoutEvent}
-        isPast={PAST_TICKSHOW_EVENTS.some((event) => event.id === checkoutEvent.id)}
-      />
+      <CheckoutPage event={checkoutEvent} isPast={checkoutEvent.showcaseGroup === "past"} />
     ) : (
-      <FooterPage page="events" events={TICKSHOW_EVENTS} onOpenEvent={openEvent} />
+      <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />
     );
   } else if (route.name === "order") {
     pageContent =
       booking !== undefined && bookingEvent !== undefined ? (
         <OrderPage booking={booking} event={bookingEvent} />
       ) : (
-        <FooterPage page="events" events={TICKSHOW_EVENTS} onOpenEvent={openEvent} />
+        <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />
       );
   } else {
     pageContent = (
       <FooterPage
         key={route.page}
         page={route.page}
-        events={TICKSHOW_EVENTS}
+        events={liveEvents}
         onOpenEvent={openEvent}
       />
     );

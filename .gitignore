@@ -2,3 +2,13 @@
 /.firecrawl
 /dist/
 /node_modules/
+
+# Secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Supabase CLI local state
+/supabase/.temp/
+/supabase/.branches/
+/supabase/.env

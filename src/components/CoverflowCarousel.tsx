@@ -265,7 +265,7 @@ export default function CoverflowCarousel({
         className={dragging ? "cf-viewport is-dragging" : "cf-viewport"}
         role="region"
         aria-roledescription="carousel"
-        aria-label="Past events lineup"
+        aria-label="Featured events lineup"
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -313,7 +313,7 @@ export default function CoverflowCarousel({
         </div>
       )}
 
-      <div className="cf-dots" aria-label="Choose a past event">
+      <div className="cf-dots" aria-label="Choose a featured event">
         {events.map((event, index) => (
           <button
             key={event.id}
