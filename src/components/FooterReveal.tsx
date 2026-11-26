@@ -271,23 +271,177 @@ function StyleSheet() {
         font-weight: 560;
       }
 
+      #tickshow-footer-reveal .site-footer .footer-mobile-help,
+      #tickshow-footer-reveal .site-footer .footer-link-arrow,
+      #tickshow-footer-reveal .site-footer .social-link-mark {
+        display: none;
+      }
+
       @media (max-width: 640px) {
         #tickshow-footer-reveal .site-footer .page-wrap {
-          width: min(calc(100% - 40px), 1160px);
-          padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px));
+          width: min(calc(100% - 32px), 560px);
+          padding-block: 18px calc(18px + env(safe-area-inset-bottom, 0px));
         }
 
+        #tickshow-footer-reveal .site-footer .footer-ticket {
+          border: 1px solid color-mix(in srgb, var(--footer-ink) 24%, transparent);
+          border-radius: 28px;
+          background: linear-gradient(
+            145deg,
+            rgba(255, 255, 255, 0.1),
+            rgba(255, 255, 255, 0.035) 72%
+          );
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-ticket::before,
+        #tickshow-footer-reveal .site-footer .footer-ticket::after,
         #tickshow-footer-reveal .site-footer .ticket-header {
-          padding-inline: 12px;
+          display: none;
         }
 
         #tickshow-footer-reveal .site-footer .ticket-body {
-          padding: 12px;
+          padding: 18px 14px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-main {
-          gap: 16px 12px;
-          padding-bottom: 16px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          padding-bottom: 18px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-brand-block {
+          display: flex;
+          grid-column: 1 / -1;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 2px 2px 16px;
+          border-bottom: 1px dashed var(--footer-rule);
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-brand-block > .social-links {
+          display: none;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-mobile-help {
+          display: inline-flex;
+          min-height: 44px;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 0 12px;
+          border: 1px solid color-mix(in srgb, var(--footer-ink) 22%, transparent);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--footer-field) 45%, transparent);
+          color: var(--footer-ink);
+          font-size: 12px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column {
+          min-width: 0;
+          align-items: stretch;
+          gap: 6px;
+          padding: 0;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column h2 {
+          margin: 0 0 2px;
+          font-size: 10px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column a,
+        #tickshow-footer-reveal .site-footer .footer-link-column button {
+          display: flex;
+          width: 100%;
+          min-width: 0;
+          min-height: 42px;
+          align-items: center;
+          justify-content: space-between;
+          gap: 4px;
+          padding: 6px 8px;
+          border: 1px solid color-mix(in srgb, var(--footer-ink) 10%, transparent);
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.14);
+          font-size: 12px;
+          line-height: 1.3;
+          text-align: left;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column a > span {
+          min-width: 0;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-arrow {
+          display: block;
+          flex: 0 0 auto;
+          color: var(--accent);
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column:last-child {
+          display: grid;
+          grid-column: 1 / -1;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column:last-child h2 {
+          grid-column: 1 / -1;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-bottom {
+          align-items: center;
+          flex-direction: column;
+          gap: 14px;
+          padding-top: 18px;
+          text-align: center;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-bottom-copy {
+          order: 2;
+          align-items: center;
+        }
+
+        #tickshow-footer-reveal .site-footer .ticket-barcode {
+          display: none;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-social-compact {
+          display: flex;
+          order: 1;
+          justify-content: center;
+          gap: 10px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-social-compact a {
+          width: 48px;
+          min-width: 48px;
+          height: 48px;
+          min-height: 48px;
+          justify-content: center;
+          border: 1px solid color-mix(in srgb, var(--footer-ink) 18%, transparent);
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.055);
+          font-size: 0;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-social-compact .social-link-label {
+          display: none;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-social-compact .social-link-mark {
+          display: inline-flex;
+          font-family: var(--footer-mono);
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-bottom > a {
+          order: 3;
+          justify-content: center;
+          min-height: 36px;
+          padding-inline: 8px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-link-column a,

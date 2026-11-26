@@ -342,31 +342,44 @@ function Footer() {
             <div className="footer-main">
               <div className="footer-brand-block">
                 <Brand />
+                <a className="footer-mobile-help" href="#/help">
+                  <span>Help center</span>
+                  <Icon name="arrowRight" size={18} />
+                </a>
                 <div className="social-links" aria-label="Social media">
-                  <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
-                  <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
-                  <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
+                  <a href="https://www.instagram.com/" target="_blank" rel="noreferrer" aria-label="Instagram">
+                    <span className="social-link-label">Instagram</span>
+                    <span className="social-link-mark" aria-hidden="true">IG</span>
+                  </a>
+                  <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer" aria-label="TikTok">
+                    <span className="social-link-label">TikTok</span>
+                    <span className="social-link-mark" aria-hidden="true">TT</span>
+                  </a>
+                  <a href="https://www.youtube.com/" target="_blank" rel="noreferrer" aria-label="YouTube">
+                    <span className="social-link-label">YouTube</span>
+                    <span className="social-link-mark" aria-hidden="true">YT</span>
+                  </a>
                 </div>
               </div>
               <div className="footer-link-column">
                 <h2>Explore</h2>
-                <a href="#/events">Explore events</a>
-                <a href="#/categories">Categories</a>
-                <a href="#/upcoming">Upcoming events</a>
+                <a href="#/events"><span>Explore events</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/categories"><span>Categories</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/upcoming"><span>Upcoming events</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
               </div>
               <div className="footer-link-column">
                 <h2>Company</h2>
-                <a href="#/about">About us</a>
-                <a href="#/how-it-works">How it works</a>
-                <a href="#/contact">Contact</a>
-                <a href="#/terms">Terms &amp; conditions</a>
-                <a href="#/privacy">Privacy policy</a>
+                <a href="#/about"><span>About us</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/how-it-works"><span>How it works</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/contact"><span>Contact</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/terms"><span>Terms &amp; conditions</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/privacy"><span>Privacy policy</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
               </div>
               <div className="footer-link-column">
                 <h2>Support</h2>
-                <a href="#/help">Help center</a>
-                <a href="#/faqs">FAQs</a>
-                <a href="#/support">Booking support</a>
+                <a href="#/help"><span>Help center</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/faqs"><span>FAQs</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
+                <a href="#/support"><span>Booking support</span><Icon className="footer-link-arrow" name="arrowRight" size={16} /></a>
               </div>
             </div>
             <div className="footer-bottom">
@@ -376,9 +389,18 @@ function Footer() {
               </div>
               <div className="ticket-barcode" aria-hidden="true" />
               <div className="social-links footer-social-compact" aria-label="Social media">
-                <a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a>
-                <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
-                <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">YouTube</a>
+                <a href="https://www.instagram.com/" target="_blank" rel="noreferrer" aria-label="Instagram">
+                  <span className="social-link-label">Instagram</span>
+                  <span className="social-link-mark" aria-hidden="true">IG</span>
+                </a>
+                <a href="https://www.tiktok.com/" target="_blank" rel="noreferrer" aria-label="TikTok">
+                  <span className="social-link-label">TikTok</span>
+                  <span className="social-link-mark" aria-hidden="true">TT</span>
+                </a>
+                <a href="https://www.youtube.com/" target="_blank" rel="noreferrer" aria-label="YouTube">
+                  <span className="social-link-label">YouTube</span>
+                  <span className="social-link-mark" aria-hidden="true">YT</span>
+                </a>
               </div>
               <a href="#home">Back to top</a>
             </div>
