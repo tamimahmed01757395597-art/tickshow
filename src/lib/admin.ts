@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { requireSupabase } from "./supabase";
 import { generateInviteToken, sha256Hex } from "./tokens";
 import type { Database } from "../types/database";
@@ -265,6 +266,29 @@ export async function fetchEligibleOrganizers(): Promise<EligibleOrganizer[]> {
     .order("name", { ascending: true });
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+export async function inviteOrganizer(name: string, email: string): Promise<void> {
+  const { data, error } = await requireSupabase()
+    .functions.invoke<{ invited: boolean }>("invite-organizer", {
+      body: { organizer_name: name.trim(), email: email.trim() },
+    });
+  if (error) {
+    let message = error.message;
+    if (error instanceof FunctionsHttpError && error.context instanceof Response) {
+      const body: unknown = await error.context.clone().json().catch(() => null);
+      if (
+        body &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        message = body.error;
+      }
+    }
+    throw new Error(message);
+  }
+  if (!data?.invited) throw new Error("The organizer invitation was not sent.");
 }
 
 export async function fetchShowcase(): Promise<ShowcaseRecord[]> {

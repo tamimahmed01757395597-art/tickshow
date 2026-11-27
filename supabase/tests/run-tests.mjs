@@ -373,13 +373,13 @@ async function testSchema() {
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
   );
-  ok("all application tables created", tableCount === 29, `found ${tableCount}`);
+  ok("all application tables created", tableCount === 30, `found ${tableCount}`);
 
   const rlsCount = await count(
     `SELECT count(*) FROM pg_tables
      WHERE schemaname = 'public' AND rowsecurity = true`,
   );
-  ok("RLS enabled on all application tables", rlsCount === 29, `found ${rlsCount}`);
+  ok("RLS enabled on all application tables", rlsCount === 30, `found ${rlsCount}`);
 
   await expectError(
     "negative ticket price rejected",
@@ -719,6 +719,85 @@ async function testAdminInvitations() {
     ok("invited user has admin role", roles.includes("admin"), JSON.stringify(roles));
     const profile = await count("SELECT count(*) FROM public.profiles WHERE id = $1", [invitee]);
     ok("auth trigger created the profile", profile === 1);
+  });
+}
+
+async function testOrganizerInvitations() {
+  console.log("\n[3b] Organizer invitations");
+  const invitee = id(8);
+  const inviteHash = "f".repeat(64);
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await expectError(
+      "customer cannot create an organizer invitation",
+      "SELECT public.create_organizer_invitation($1, $2, $3, $4)",
+      ["new-organizer@tickshow.test", "New Organizer", "new-organizer-test", inviteHash],
+    );
+  });
+
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    await q(
+      `SELECT public.create_organizer_invitation($1, $2, $3, $4, interval '7 days')`,
+      ["invitee@tickshow.test", "New Organizer", "new-organizer-test", inviteHash],
+    );
+    const visible = await count("SELECT count(*) FROM public.organizer_invitations");
+    ok("admin can create organizer invitations", visible === 1);
+  });
+
+  await asService(async () => {
+    await q(
+      `INSERT INTO auth.users (id, email, raw_user_meta_data)
+       VALUES ($1, 'invitee@tickshow.test', '{"full_name":"New Organizer"}'::jsonb)`,
+      [invitee],
+    );
+  });
+
+  await asAnon(async () => {
+    await expectError(
+      "anonymous users cannot read organizer invitations",
+      "SELECT id FROM public.organizer_invitations",
+    );
+    await expectError(
+      "organizer invitation rejects a different account email",
+      "SELECT public.accept_organizer_invitation($1, $2)",
+      [USER.customerA, inviteHash],
+    );
+  });
+
+  await asAuth(invitee, "invitee@tickshow.test", async () => {
+    const accepted = await q(
+      "SELECT public.accept_organizer_invitation($1, $2) AS accepted",
+      [invitee, inviteHash],
+    );
+    ok("valid organizer invitation is accepted", accepted.rows[0]?.accepted === true);
+    await expectError(
+      "organizer invitation cannot be reused",
+      "SELECT public.accept_organizer_invitation($1, $2)",
+      [invitee, inviteHash],
+    );
+  });
+
+  await asService(async () => {
+    const organizer = await q(
+      `SELECT name, slug, contact_email, status, approval_status
+       FROM public.organizers WHERE owner_id = $1`,
+      [invitee],
+    );
+    const roles = await ids(
+      `SELECT r.name AS id FROM public.user_roles ur
+       JOIN public.roles r ON r.id = ur.role_id WHERE ur.user_id = $1`,
+      [invitee],
+    );
+    ok(
+      "accepted invitation creates an organizer account pending admin approval",
+      organizer.rows[0]?.name === "New Organizer" &&
+        organizer.rows[0]?.slug === "new-organizer-test" &&
+        organizer.rows[0]?.contact_email === "invitee@tickshow.test" &&
+        organizer.rows[0]?.status === "pending" &&
+        organizer.rows[0]?.approval_status === "pending" &&
+        roles.includes("organizer"),
+      JSON.stringify({ organizer: organizer.rows[0], roles }),
+    );
   });
 }
 
@@ -1243,6 +1322,7 @@ async function run() {
   await testSchema();
   await testRls();
   await testAdminInvitations();
+  await testOrganizerInvitations();
   await testAdminManagement();
   await testStorefrontShowcase();
   await testStorefrontBookings();

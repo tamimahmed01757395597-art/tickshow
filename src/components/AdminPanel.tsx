@@ -57,13 +57,15 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
 type EditField = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "date" | "datetime-local" | "checkbox" | "file";
+  type?: "text" | "email" | "textarea" | "select" | "number" | "date" | "datetime-local" | "checkbox" | "file";
   options?: Array<string | { value: string; label: string }>;
   required?: boolean;
   accept?: string;
   full?: boolean;
   hint?: string;
 };
+
+const INVITE_ORGANIZER_OPTION = "__invite_organizer__";
 
 type DataTableColumn<T> = { label: string; render: (row: T) => ReactNode };
 
@@ -259,6 +261,7 @@ function EditModal({
   onClose,
   wide = false,
   saveLabel = "Save changes",
+  onInviteOrganizer,
 }: {
   title: string;
   fields: EditField[];
@@ -270,6 +273,7 @@ function EditModal({
   onClose: () => void;
   wide?: boolean;
   saveLabel?: string;
+  onInviteOrganizer?: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -334,7 +338,16 @@ function EditModal({
                 <select
                   required={field.required}
                   value={values[field.key] ?? ""}
-                  onChange={(event) => set(field.key, event.target.value)}
+                  onChange={(event) => {
+                    if (
+                      field.key === "organizer_id" &&
+                      event.target.value === INVITE_ORGANIZER_OPTION
+                    ) {
+                      onInviteOrganizer?.();
+                      return;
+                    }
+                    set(field.key, event.target.value);
+                  }}
                 >
                   {(field.options ?? []).map((option) => (
                     <option
@@ -1214,6 +1227,8 @@ function ShowcaseSection() {
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [actionError, setActionError] = useState("");
+  const [invitingOrganizer, setInvitingOrganizer] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState("");
   const showcaseFields = useMemo(
     () =>
       SHOWCASE_FIELDS
@@ -1228,6 +1243,7 @@ function ShowcaseSection() {
                   value: organizer.id,
                   label: organizer.name,
                 })),
+                { value: INVITE_ORGANIZER_OPTION, label: "Invite a new organizer…" },
               ],
               hint: organizerError
                 ? `Could not load organizers: ${organizerError}`
@@ -1364,6 +1380,7 @@ function ShowcaseSection() {
         </p>
       )}
       {actionError && <p className="admin-inline-error" role="alert">{actionError}</p>}
+      {inviteNotice && <p className="admin-readonly-note" role="status">{inviteNotice}</p>}
 
       <section className="admin-section-block">
         <div className="admin-section-heading">
@@ -1377,6 +1394,7 @@ function ShowcaseSection() {
             onClick={() => {
               setEditing(null);
               setCreating(true);
+              setInviteNotice("");
             }}
           >
             Add event
@@ -1500,7 +1518,28 @@ function ShowcaseSection() {
             setEditing(null);
             setCreating(false);
           }}
+          onInviteOrganizer={() => setInvitingOrganizer(true)}
           onSave={save}
+        />
+      )}
+      {invitingOrganizer && (
+        <EditModal
+          title="Invite a new organizer"
+          fields={[
+            { key: "organizer_name", label: "Organizer name", required: true },
+            { key: "email", label: "Email address", type: "email", required: true },
+          ]}
+          initial={{ organizer_name: "", email: "" }}
+          saveLabel="Send invitation"
+          onClose={() => setInvitingOrganizer(false)}
+          onSave={async (values) => {
+            await api.inviteOrganizer(values.organizer_name, values.email);
+            setInviteNotice(
+              "Invitation email sent. After they sign up, approve the organizer in the Organizers panel before assigning events.",
+            );
+            reloadOrganizers();
+            setInvitingOrganizer(false);
+          }}
         />
       )}
     </SectionState>

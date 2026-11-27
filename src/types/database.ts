@@ -1,7 +1,7 @@
 /**
  * TickShow database types.
  *
- * Hand-authored to match supabase/migrations/0001-0024. After linking a real
+ * Hand-authored to match supabase/migrations/0001-0025. After linking a real
  * Supabase project you can regenerate this file with `npm run db:types:remote`.
  */
 
@@ -187,6 +187,41 @@ export type Database = {
           invited_by?: string | null;
           created_at?: string;
           updated_at?: string;
+        }
+      >;
+      organizer_invitations: Table<
+        {
+          id: string;
+          email: string;
+          organizer_name: string;
+          organizer_slug: string;
+          token_hash: string;
+          invited_by: string | null;
+          expires_at: string;
+          used_at: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          email: string;
+          organizer_name: string;
+          organizer_slug: string;
+          token_hash: string;
+          invited_by?: string | null;
+          expires_at: string;
+          used_at?: string | null;
+          created_at?: string;
+        },
+        {
+          id?: string;
+          email?: string;
+          organizer_name?: string;
+          organizer_slug?: string;
+          token_hash?: string;
+          invited_by?: string | null;
+          expires_at?: string;
+          used_at?: string | null;
+          created_at?: string;
         }
       >;
       event_categories: Table<
@@ -1300,6 +1335,24 @@ export type Database = {
         Returns: Database["public"]["Tables"]["admin_invitations"]["Row"] | null;
       };
       accept_admin_invitation: {
+        Args: { p_user_id: string; p_token_hash: string };
+        Returns: boolean;
+      };
+      create_organizer_invitation: {
+        Args: {
+          p_email: string;
+          p_organizer_name: string;
+          p_organizer_slug: string;
+          p_token_hash: string;
+          p_expires_in?: string;
+        };
+        Returns: Database["public"]["Tables"]["organizer_invitations"]["Row"] | null;
+      };
+      cancel_organizer_invitation: {
+        Args: { p_invitation_id: string };
+        Returns: boolean;
+      };
+      accept_organizer_invitation: {
         Args: { p_user_id: string; p_token_hash: string };
         Returns: boolean;
       };

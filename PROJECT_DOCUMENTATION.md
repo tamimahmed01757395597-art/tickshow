@@ -163,7 +163,7 @@ Later work in the working tree added migration `0016_grants_and_privileges.sql`,
 - **`.env.example`** — placeholder-only template for `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 - **`.gitignore`** — ignores `.env`, `.env.*`, `dist/`, `node_modules/`, `.agents/`, `.firecrawl/` and Supabase CLI state; `.env.example` is the exception.
 - **`supabase/config.toml`** — local Supabase project configuration (`project_id = "tickshow"`, Postgres 15, API 54321, DB 54322, Studio 54323); signup and email confirmations are enabled and `site_url` is `http://localhost:5173`.
-- **`supabase/bootstrap.sql`** — generated concatenation of migrations `0001`–`0024` for manual SQL-editor setup.
+- **`supabase/bootstrap.sql`** — generated concatenation of migrations `0001`–`0025` for manual SQL-editor setup.
 - **`scripts/build-docs-pdf.py`** — renders `PROJECT_DOCUMENTATION.md` to PDF with Python `markdown` and `xhtml2pdf`.
 
 ### 4.4 External assets
@@ -218,10 +218,10 @@ D:\maximalism_tickshow
 │   └── vite-env.d.ts
 ├── supabase/
 │   ├── config.toml
-│   ├── bootstrap.sql                # all 24 migrations combined
+│   ├── bootstrap.sql                # all 25 migrations combined
 │   ├── build-bootstrap.mjs
 │   ├── seed.sql                     # first-admin bootstrap template
-│   ├── migrations/                  # 0001–0024
+│   ├── migrations/                  # 0001–0025
 │   └── tests/run-tests.mjs          # PGlite validation suite
 ├── .env.example
 ├── DESIGN.md
@@ -280,6 +280,7 @@ Supabase project
        └── private multi-page demo PDFs
 Supabase Edge Function
   └── send-ticket-email → jsPDF + QR code → Brevo transactional email
+  └── invite-organizer → one-time invitation → Brevo transactional email
 ```
 
 ### 6.3 Storefront showcase data flow
@@ -554,6 +555,7 @@ Application tables, all with RLS enabled:
 | `0022_secure_storefront_tickets.sql` | Per-ticket hashed QR tokens, private access, resend/download claims and verification |
 | `0023_link_showcase_events_to_catalog.sql` | Link showcase rows to draft catalog events and General Admission inventory |
 | `0024_event_ticket_designs.sql` | Event-specific ticket styles/artwork and booking snapshots |
+| `0025_organizer_invitations.sql` | Email invitations and pending organizer account acceptance |
 
 ### 9.4 Important invariants
 
@@ -730,7 +732,7 @@ npx tsc --noEmit            # type check
 
 ### 13.4 Manual SQL-editor setup
 
-If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL Editor. It applies migrations `0001`–`0024` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before policies and triggers that use them.
+If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL Editor. It applies migrations `0001`–`0025` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before policies and triggers that use them.
 
 - Running a later migration alone used to cause `42883: function ... does not exist`; migrations `0012` and `0015` now bootstrap their own helpers.
 - Migration `0012` deliberately does not run `ALTER TABLE storage.objects ...`; Supabase owns that table and enables its RLS by default.
@@ -846,7 +848,7 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 - Admin reads/writes: `src/lib/admin.ts`
 - Showcase fetch and fallback: `src/lib/storefront.ts`
 - Database contract: `src/types/database.ts`
-- Schema, RLS and policies: `supabase/migrations/0001`–`0024`
+- Schema, RLS and policies: `supabase/migrations/0001`–`0025`
 - Combined manual setup: `supabase/bootstrap.sql`
 - Validation suite: `supabase/tests/run-tests.mjs`
 - PDF renderer: `scripts/build-docs-pdf.py`
