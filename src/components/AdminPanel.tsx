@@ -1026,21 +1026,31 @@ function ShowcaseSection() {
   const [filter, setFilter] = useState<ShowcaseFilter>("all");
   const [editing, setEditing] = useState<ShowcaseRecord | null>(null);
   const [creating, setCreating] = useState(false);
+  const [linkingEvent, setLinkingEvent] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [actionError, setActionError] = useState("");
   const showcaseFields = useMemo(
     () =>
       SHOWCASE_FIELDS
         .filter((field) => field.key !== "ticket_design_clear" || Boolean(editing?.ticket_design_image_path))
-        .map((field) =>
-        field.key === "ticket_design_file" && editing?.ticket_design_image_path
-            ? {
-                ...field,
-                hint: "Current artwork is set. Upload a replacement, or select Remove current ticket artwork.",
-              }
-            : field,
-        ),
-    [editing],
+        .map((field) => {
+          let next = field;
+          if (linkingEvent && ["starts_at", "ends_at", "capacity"].includes(field.key)) {
+            next = {
+              ...next,
+              required: true,
+              hint: field.hint ?? "Required to create the catalog event.",
+            };
+          }
+          if (field.key === "ticket_design_file" && editing?.ticket_design_image_path) {
+            next = {
+              ...next,
+              hint: "Current artwork is set. Upload a replacement, or select Remove current ticket artwork.",
+            };
+          }
+          return next;
+        }),
+    [editing, linkingEvent],
   );
 
   const rows = useMemo(
@@ -1096,9 +1106,10 @@ function ShowcaseSection() {
     if (files.ticket_design_file && values.ticket_design_clear === "true") {
       throw new Error("Upload new artwork or remove the current artwork, not both.");
     }
-    const record = showcaseValues(values, creating);
+    const record = showcaseValues(values, creating || linkingEvent);
     const eventId = editing?.id ?? crypto.randomUUID();
     const uploadedPaths: string[] = [];
+    let linkWarning = "";
     try {
       const file = files.image_file;
       const uploaded = file ? await api.uploadShowcaseImage(eventId, file) : null;
@@ -1119,10 +1130,14 @@ function ShowcaseSection() {
           image_url: uploaded?.publicUrl ?? record.image_url,
         });
       } else if (editing) {
-        await api.updateShowcaseEvent(editing.id, {
+        const normalizedEventId = await api.updateShowcaseEvent(editing.id, {
           ...record,
           image_url: uploaded?.publicUrl ?? record.image_url,
         });
+        if (linkingEvent && !normalizedEventId) {
+          linkWarning =
+            "The showcase details were saved, but the catalog event was not created. Apply migration 0030 and verify the showcase sync trigger.";
+        }
       }
     } catch (caught) {
       const cleanupErrors: string[] = [];
@@ -1143,6 +1158,8 @@ function ShowcaseSection() {
     reload();
     setEditing(null);
     setCreating(false);
+    setLinkingEvent(false);
+    setActionError(linkWarning);
   };
 
   return (
@@ -1167,6 +1184,7 @@ function ShowcaseSection() {
             onClick={() => {
               setEditing(null);
               setCreating(true);
+              setLinkingEvent(false);
             }}
           >
             Add event
@@ -1260,11 +1278,25 @@ function ShowcaseSection() {
               label: "Actions",
               render: (row) => (
                 <div className="admin-row-actions">
+                    {!row.normalized_event_id && (
+                      <button
+                        className="admin-button admin-button-quiet"
+                        type="button"
+                        onClick={() => {
+                          setCreating(false);
+                          setLinkingEvent(true);
+                          setEditing(row);
+                        }}
+                      >
+                        Link to Events
+                      </button>
+                    )}
                   <button
                     className="admin-button admin-button-quiet"
                     type="button"
                     onClick={() => {
                       setCreating(false);
+                        setLinkingEvent(false);
                       setEditing(row);
                     }}
                   >
@@ -1288,13 +1320,22 @@ function ShowcaseSection() {
       {(editing || creating) && (
         <EditModal
           wide
-          title={creating ? "Add storefront event" : `Edit ${editing?.title ?? "event"}`}
+          title={
+            creating
+              ? "Add storefront event"
+              : linkingEvent
+                ? `Link ${editing?.title ?? "event"} to Events`
+                : `Edit ${editing?.title ?? "event"}`
+          }
           fields={showcaseFields}
           initial={showcaseInitial(editing)}
-          saveLabel={creating ? "Create event" : "Save changes"}
+          saveLabel={
+            creating ? "Create event" : linkingEvent ? "Create catalog event" : "Save changes"
+          }
           onClose={() => {
             setEditing(null);
             setCreating(false);
+            setLinkingEvent(false);
           }}
           onSave={save}
         />

@@ -302,12 +302,15 @@ export async function deleteShowcaseImage(path: string): Promise<void> {
 export async function updateShowcaseEvent(
   id: string,
   patch: Tables["storefront_events"]["Update"],
-): Promise<void> {
-  const { error } = await requireSupabase()
+): Promise<string | null> {
+  const { data, error } = await requireSupabase()
     .from("storefront_events")
     .update(patch)
-    .eq("id", id);
+    .eq("id", id)
+    .select("normalized_event_id")
+    .single();
   if (error) throw new Error(error.message);
+  return data.normalized_event_id;
 }
 
 export async function deleteShowcaseEvent(id: string): Promise<void> {

@@ -198,6 +198,24 @@ async function applyMigrations() {
       // Simulate deleting the empty managed bucket through Supabase Storage.
       await db.exec("DELETE FROM storage.buckets WHERE id = 'organizer-logos'");
     }
+    if (file === "0030_repair_showcase_catalog_links.sql") {
+      await db.exec(
+        "ALTER TABLE public.storefront_events DISABLE TRIGGER trg_sync_storefront_event_to_catalog",
+      );
+      await q(
+        `INSERT INTO public.storefront_events (
+          slug, title, category, date_label, date_value, organizer_name,
+          starts_at, ends_at, capacity, is_visible
+        ) VALUES (
+          'legacy-unlinked-event', 'Legacy Unlinked Event', 'Concerts & Music',
+          'Test date', CURRENT_DATE + 10, 'Legacy Organizer',
+          now() + interval '10 days', now() + interval '11 days', 12, false
+        )`,
+      );
+      await db.exec(
+        "ALTER TABLE public.storefront_events ENABLE TRIGGER trg_sync_storefront_event_to_catalog",
+      );
+    }
     await db.exec(sql);
     console.log(`  APPLIED ${file}`);
   }
@@ -364,6 +382,22 @@ async function testSchema() {
       new Date(legacyProfile.rows[0]?.created_at).toISOString() === "2024-01-02T03:04:05.000Z",
     JSON.stringify(legacyProfile.rows[0]),
   );
+  const repairedShowcase = await q(
+    `SELECT showcase.normalized_event_id, event.title, ticket_type.name
+     FROM public.storefront_events showcase
+     JOIN public.events event ON event.id = showcase.normalized_event_id
+     JOIN public.ticket_types ticket_type ON ticket_type.event_id = event.id
+     WHERE showcase.slug = 'legacy-unlinked-event'`,
+  );
+  ok(
+    "migration links complete legacy showcase events to the admin catalog",
+    repairedShowcase.rows[0]?.normalized_event_id &&
+      repairedShowcase.rows[0]?.title === "Legacy Unlinked Event" &&
+      repairedShowcase.rows[0]?.name === "General Admission",
+    JSON.stringify(repairedShowcase.rows[0]),
+  );
+  await q("DELETE FROM public.events WHERE slug = 'legacy-unlinked-event'");
+  await q("DELETE FROM public.storefront_events WHERE slug = 'legacy-unlinked-event'");
 
   const tableCount = await count(
     `SELECT count(*) FROM information_schema.tables
