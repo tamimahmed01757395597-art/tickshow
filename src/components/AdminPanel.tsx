@@ -57,8 +57,10 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
 type EditField = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "date" | "checkbox" | "file";
-  options?: string[];
+  type?: "text" | "textarea" | "select" | "number" | "date" | "datetime-local" | "checkbox" | "file";
+  options?: Array<string | { value: string; label: string }>;
+  required?: boolean;
+  accept?: string;
   full?: boolean;
   hint?: string;
 };
@@ -324,17 +326,22 @@ function EditModal({
               ) : field.type === "textarea" ? (
                 <textarea
                   rows={4}
+                  required={field.required}
                   value={values[field.key] ?? ""}
                   onChange={(event) => set(field.key, event.target.value)}
                 />
               ) : field.type === "select" ? (
                 <select
+                  required={field.required}
                   value={values[field.key] ?? ""}
                   onChange={(event) => set(field.key, event.target.value)}
                 >
                   {(field.options ?? []).map((option) => (
-                    <option key={option} value={option}>
-                      {option.replace(/_/g, " ")}
+                    <option
+                      key={typeof option === "string" ? option : option.value}
+                      value={typeof option === "string" ? option : option.value}
+                    >
+                      {typeof option === "string" ? option.replace(/_/g, " ") : option.label}
                     </option>
                   ))}
                 </select>
@@ -342,7 +349,7 @@ function EditModal({
                 <>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    accept={field.accept ?? "image/jpeg,image/png,image/webp,image/avif"}
                     onChange={(event) => {
                       const file = event.currentTarget.files?.[0] ?? null;
                       setFiles((current) => ({ ...current, [field.key]: file }));
@@ -353,6 +360,7 @@ function EditModal({
               ) : (
                 <input
                   type={field.type ?? "text"}
+                  required={field.required}
                   value={values[field.key] ?? ""}
                   onChange={(event) => set(field.key, event.target.value)}
                 />
@@ -975,11 +983,59 @@ const SHOWCASE_FIELDS: EditField[] = [
   { key: "status_label", label: "Status label", hint: "Example: Selling fast, Live now, Past event." },
   { key: "date_label", label: "Display date", hint: "Example: August 14-16, 2026." },
   { key: "date_value", label: "Sort date", type: "date" },
+  {
+    key: "organizer_id",
+    label: "Operational event organizer",
+    type: "select",
+    options: [{ value: "", label: "Choose an approved organizer" }],
+    full: true,
+    hint: "New showcase events require an active, approved organizer.",
+  },
+  {
+    key: "starts_at",
+    label: "Operational start date and time",
+    type: "datetime-local",
+    hint: "Used for the catalog event and ticket sales window.",
+  },
+  { key: "ends_at", label: "Operational end date and time", type: "datetime-local" },
+  {
+    key: "capacity",
+    label: "Ticket capacity",
+    type: "number",
+    hint: "Creates one General Admission ticket type with this inventory.",
+  },
   { key: "time_label", label: "Time label" },
   { key: "venue", label: "Venue" },
   { key: "location", label: "Location" },
   { key: "city", label: "City" },
   { key: "price_amount", label: "Display price (BDT)", type: "number" },
+  {
+    key: "ticket_design_style",
+    label: "Ticket style",
+    type: "select",
+    full: true,
+    options: [
+      { value: "classic", label: "Classic — TickShow lime" },
+      { value: "midnight", label: "Midnight — navy and violet" },
+      { value: "festival", label: "Festival — coral and gold" },
+      { value: "neon", label: "Neon — teal and electric blue" },
+    ],
+    hint: "This style is saved with each booking and used for its PDF ticket.",
+  },
+  {
+    key: "ticket_design_file",
+    label: "Upload ticket artwork (optional)",
+    type: "file",
+    accept: "image/jpeg,image/png",
+    full: true,
+    hint: "JPEG or PNG, up to 10 MB. A6 portrait artwork is recommended; ticket details and the unique QR are overlaid in a clear panel.",
+  },
+  {
+    key: "ticket_design_clear",
+    label: "Remove current ticket artwork",
+    type: "checkbox",
+    full: true,
+  },
   { key: "display_order", label: "List order", type: "number" },
   {
     key: "image_file",
@@ -1027,6 +1083,14 @@ function parseLineupText(value: string): Tables["storefront_events"]["Insert"]["
 }
 
 function showcaseInitial(row: ShowcaseRecord | null): Record<string, unknown> {
+  const toLocalDateTime = (value: string | null | undefined) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+  };
   return {
     title: row?.title ?? "",
     slug: row?.slug ?? "",
@@ -1035,11 +1099,17 @@ function showcaseInitial(row: ShowcaseRecord | null): Record<string, unknown> {
     status_label: row?.status_label ?? "On sale now",
     date_label: row?.date_label ?? "",
     date_value: row?.date_value ?? new Date().toISOString().slice(0, 10),
+    organizer_id: row?.organizer_id ?? "",
+    starts_at: toLocalDateTime(row?.starts_at),
+    ends_at: toLocalDateTime(row?.ends_at),
+    capacity: row?.capacity ?? "",
     time_label: row?.time_label ?? "",
     venue: row?.venue ?? "",
     location: row?.location ?? "",
     city: row?.city ?? "",
     price_amount: row?.price_amount ?? 0,
+    ticket_design_style: row?.ticket_design_style ?? "classic",
+    ticket_design_clear: false,
     display_order: row?.display_order ?? 0,
     image_url: row?.image_url ?? "",
     image_alt: row?.image_alt ?? "",
@@ -1066,11 +1136,42 @@ function normalizeShowcaseSlug(value: string): string {
   return slug;
 }
 
-function showcaseValues(values: Record<string, string>): Tables["storefront_events"]["Insert"] {
+function showcaseValues(
+  values: Record<string, string>,
+  requireOperationalDetails: boolean,
+): Tables["storefront_events"]["Insert"] {
   const numberOr = (key: string) => {
     const parsed = Number(values[key]);
     return Number.isFinite(parsed) ? parsed : 0;
   };
+  const operationalValues = [
+    values.organizer_id,
+    values.starts_at,
+    values.ends_at,
+    values.capacity,
+  ];
+  const hasOperationalDetails = operationalValues.some((value) => value.trim().length > 0);
+  const hasCompleteOperationalDetails = operationalValues.every((value) => value.trim().length > 0);
+  if ((requireOperationalDetails || hasOperationalDetails) && !hasCompleteOperationalDetails) {
+    throw new Error(
+      "Provide an approved organizer, start and end date/time, and a ticket capacity to create the catalog event.",
+    );
+  }
+  const startsAt = hasOperationalDetails ? new Date(values.starts_at) : null;
+  const endsAt = hasOperationalDetails ? new Date(values.ends_at) : null;
+  const capacity = hasOperationalDetails ? Number(values.capacity) : null;
+  if (
+    hasOperationalDetails &&
+    (!startsAt ||
+      Number.isNaN(startsAt.getTime()) ||
+      !endsAt ||
+      Number.isNaN(endsAt.getTime()) ||
+      endsAt <= startsAt ||
+      !Number.isInteger(capacity) ||
+      (capacity ?? 0) <= 0)
+  ) {
+    throw new Error("Enter valid event times and a positive whole-number ticket capacity.");
+  }
   return {
     title: values.title.trim(),
     slug: normalizeShowcaseSlug(values.slug),
@@ -1079,11 +1180,16 @@ function showcaseValues(values: Record<string, string>): Tables["storefront_even
     status_label: values.status_label.trim() || "On sale now",
     date_label: values.date_label.trim(),
     date_value: values.date_value,
+    organizer_id: hasOperationalDetails ? values.organizer_id : null,
+    starts_at: startsAt?.toISOString() ?? null,
+    ends_at: endsAt?.toISOString() ?? null,
+    capacity,
     time_label: values.time_label || null,
     venue: values.venue || null,
     location: values.location || null,
     city: values.city || null,
     price_amount: numberOr("price_amount"),
+    ticket_design_style: values.ticket_design_style || "classic",
     display_order: numberOr("display_order"),
     image_url: values.image_url || null,
     image_alt: values.image_alt || null,
@@ -1097,11 +1203,47 @@ function showcaseValues(values: Record<string, string>): Tables["storefront_even
 
 function ShowcaseSection() {
   const { data, error, loading, reload } = useAdminFetch(api.fetchShowcase);
+  const {
+    data: eligibleOrganizers,
+    error: organizerError,
+    loading: organizersLoading,
+    reload: reloadOrganizers,
+  } = useAdminFetch(api.fetchEligibleOrganizers);
   const [filter, setFilter] = useState<ShowcaseFilter>("all");
   const [editing, setEditing] = useState<ShowcaseRecord | null>(null);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [actionError, setActionError] = useState("");
+  const showcaseFields = useMemo(
+    () =>
+      SHOWCASE_FIELDS
+        .filter((field) => field.key !== "ticket_design_clear" || Boolean(editing?.ticket_design_image_path))
+        .map((field) =>
+        field.key === "organizer_id"
+          ? {
+              ...field,
+              options: [
+                { value: "", label: "Choose an approved organizer" },
+                ...(eligibleOrganizers ?? []).map((organizer) => ({
+                  value: organizer.id,
+                  label: organizer.name,
+                })),
+              ],
+              hint: organizerError
+                ? `Could not load organizers: ${organizerError}`
+                : organizersLoading
+                  ? "Loading active, approved organizers…"
+                  : "New showcase events require an active, approved organizer.",
+            }
+          : field.key === "ticket_design_file" && editing?.ticket_design_image_path
+            ? {
+                ...field,
+                hint: "Current artwork is set. Upload a replacement, or select Remove current ticket artwork.",
+              }
+            : field,
+        ),
+    [eligibleOrganizers, organizerError, organizersLoading, editing],
+  );
 
   const rows = useMemo(
     () =>
@@ -1153,11 +1295,25 @@ function ShowcaseSection() {
     values: Record<string, string>,
     files: Record<string, File | null>,
   ) => {
-    const record = showcaseValues(values);
+    if (files.ticket_design_file && values.ticket_design_clear === "true") {
+      throw new Error("Upload new artwork or remove the current artwork, not both.");
+    }
+    const record = showcaseValues(values, creating);
     const eventId = editing?.id ?? crypto.randomUUID();
-    const file = files.image_file;
-    const uploaded = file ? await api.uploadShowcaseImage(eventId, file) : null;
+    const uploadedPaths: string[] = [];
     try {
+      const file = files.image_file;
+      const uploaded = file ? await api.uploadShowcaseImage(eventId, file) : null;
+      if (uploaded) uploadedPaths.push(uploaded.path);
+      const ticketDesignFile = files.ticket_design_file;
+      const uploadedTicketDesign = ticketDesignFile
+        ? await api.uploadTicketDesignImage(eventId, ticketDesignFile)
+        : null;
+      if (uploadedTicketDesign) uploadedPaths.push(uploadedTicketDesign);
+      record.ticket_design_image_path = uploadedTicketDesign ??
+        (editing && values.ticket_design_clear !== "true"
+          ? editing.ticket_design_image_path
+          : null);
       if (creating) {
         await api.createShowcaseEvent({
           ...record,
@@ -1171,14 +1327,18 @@ function ShowcaseSection() {
         });
       }
     } catch (caught) {
-      if (uploaded) {
+      const cleanupErrors: string[] = [];
+      for (const path of uploadedPaths) {
         try {
-          await api.deleteShowcaseImage(uploaded.path);
+          await api.deleteShowcaseImage(path);
         } catch (cleanupError) {
-          throw new Error(
-            `${messageOf(caught)} Uploaded image cleanup also failed: ${messageOf(cleanupError)}`,
-          );
+          cleanupErrors.push(messageOf(cleanupError));
         }
+      }
+      if (cleanupErrors.length) {
+        throw new Error(
+          `${messageOf(caught)} Uploaded image cleanup also failed: ${cleanupErrors.join("; ")}`,
+        );
       }
       throw caught;
     }
@@ -1191,8 +1351,18 @@ function ShowcaseSection() {
     <SectionState loading={loading} error={error} onRetry={reload}>
       <div className="admin-readonly-note">
         These records drive the public event grid, detail pages and coverflow carousel. Group,
-        visibility and carousel choices take effect as soon as they are saved.
+        visibility and carousel choices take effect as soon as they are saved. New events also
+        create a draft, pending catalog event and one General Admission ticket type; existing
+        showcase-only events can be linked by adding the operational details.
       </div>
+      {organizerError && (
+        <p className="admin-inline-error" role="alert">
+          Could not load eligible organizers: {organizerError}{" "}
+          <button className="admin-button admin-button-quiet" type="button" onClick={reloadOrganizers}>
+            Retry
+          </button>
+        </p>
+      )}
       {actionError && <p className="admin-inline-error" role="alert">{actionError}</p>}
 
       <section className="admin-section-block">
@@ -1323,7 +1493,7 @@ function ShowcaseSection() {
         <EditModal
           wide
           title={creating ? "Add storefront event" : `Edit ${editing?.title ?? "event"}`}
-          fields={SHOWCASE_FIELDS}
+          fields={showcaseFields}
           initial={showcaseInitial(editing)}
           saveLabel={creating ? "Create event" : "Save changes"}
           onClose={() => {

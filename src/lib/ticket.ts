@@ -3,7 +3,11 @@ import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import type { Database } from "../types/database";
 import { requireSupabase } from "./supabase";
-import { addTicketPages, type TicketPdfItem } from "./ticket-pdf";
+import {
+  addTicketPages,
+  ticketArtworkFromBlob,
+  type TicketPdfItem,
+} from "./ticket-pdf";
 import type { TicketPdfDocument } from "./ticket-pdf";
 
 type Booking = Database["public"]["Tables"]["storefront_bookings"]["Row"];
@@ -47,6 +51,16 @@ function asPdfDocument(pdf: jsPDF): TicketPdfDocument {
 
 export async function createTicketPdf(booking: Booking, tickets: TicketPdfItem[]) {
   const pdf = new jsPDF({ unit: "mm", format: "a6", orientation: "portrait" });
+  let artwork = null;
+  if (booking.ticket_design_image_path) {
+    const client = requireSupabase();
+    const { data } = client.storage.from("event-images").getPublicUrl(
+      booking.ticket_design_image_path,
+    );
+    const response = await fetch(data.publicUrl);
+    if (!response.ok) throw new Error("Could not load this event's ticket artwork.");
+    artwork = await ticketArtworkFromBlob(await response.blob());
+  }
   await addTicketPages(
     asPdfDocument(pdf),
     booking,
@@ -58,6 +72,7 @@ export async function createTicketPdf(booking: Booking, tickets: TicketPdfItem[]
         margin: 1,
         errorCorrectionLevel: "H",
       }),
+    artwork,
   );
   return pdf;
 }

@@ -47,6 +47,8 @@ supabase/migrations/
   0020_customer_accounts_and_bookings.sql
   0021_ticket_delivery_and_one_time_download.sql
   0022_secure_storefront_tickets.sql
+  0023_link_showcase_events_to_catalog.sql
+  0024_event_ticket_designs.sql
 supabase/functions/send-ticket-email/index.ts
 src/lib/ticket-pdf.ts                  (shared multi-ticket PDF renderer)
 supabase/tests/run-tests.mjs
@@ -68,11 +70,13 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 | Storefront showcase | `storefront_events`, `storefront_bookings`, `storefront_tickets` |
 | Additional | `notifications`, `reviews`, `platform_settings`, `audit_logs` |
 
-`event_staff` provides explicit per-event staff assignments. `event_lineup_items` mirrors the existing frontend lineup structure. `storefront_events` is a separate presentation layer for the public grid, event detail pages and coverflow carousel; the normalized `events` table remains the source of truth for inventory, orders and finance.
+`event_staff` provides explicit per-event staff assignments. `event_lineup_items` mirrors the existing frontend lineup structure. `storefront_events` supplies the public grid, event detail pages and coverflow carousel. When an administrator creates a showcase event with an active, approved organizer, real start/end times and capacity, migration `0023` also creates a linked normalized event and one General Admission ticket type with matching price and inventory. The catalog event starts as draft/pending for moderation; editing the showcase record keeps its linked event and ticket inventory synchronized. Older showcase rows stay unlinked until those operational details are supplied. Removing a showcase row does not delete its normalized event.
 
-The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. These showcase records are separate from normalized `orders` because showcase events do not have ticket inventory configured.
+The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. This demo flow remains separate from normalized `orders` and does not reserve or sell the new catalog inventory.
 
 Ticket issuance is handled by the authenticated `send-ticket-email` Edge Function. It creates one cryptographically random token per ticket, stores only SHA-256 token hashes in the private `storefront_tickets` table, builds an A6 PDF with a unique QR code on each page, and stores the PDF in the private `ticket-files` bucket. Brevo receives the booking's database email, never a browser-provided recipient. Account PDF downloads use a single-use database claim and a short-lived signed URL. All generated tickets and email copy are marked DEMO / TEST and are not valid for paid entry.
+
+Admins can select a built-in ticket style (Classic, Midnight, Festival or Neon) and optionally upload event-specific JPEG/PNG artwork in **Event showcase**. Booking creation snapshots both settings, so a later design change does not alter tickets already booked. The PDF renderer places booking details and the unique QR in fixed clear areas over the artwork; keep the A6 portrait canvas clear enough for those overlays.
 
 ### Important invariants
 
@@ -84,7 +88,7 @@ Ticket issuance is handled by the authenticated `send-ticket-email` Edge Functio
 - `payments.payment_intent_id`, `checkout_session_id` and webhook `event_id` are unique for idempotency.
 - Admin panel updates cannot change order/payout amounts or ownership; database triggers enforce immutability.
 - Payment records and refunds remain read-only to clients; only trusted server/webhook code writes them.
-- Storefront showcase edits cannot change event inventory, ticket types, orders or payments; they only change display data.
+- Showcase edits synchronize linked catalog event details and General Admission inventory. They do not change normalized orders, payments, or the separate demo-booking checkout flow.
 - Demo bookings are not payments or paid entry tickets; authenticated customers can create bookings for currently visible, upcoming or ongoing events, then receive clearly marked DEMO / TEST PDFs.
 - Account deletion removes the auth account, profile, demo bookings, and other profile-cascaded data. Historical normalized orders are retained for financial integrity with customer contact details anonymized.
 
@@ -157,7 +161,7 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0022 in order.
+Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0024 in order.
 
 ## 6. Environment variables
 
@@ -186,7 +190,7 @@ Brevo's API sends the PDF attachment using `BREVO_FROM_EMAIL`. Add and verify th
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0022` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0024` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -232,7 +236,7 @@ Migrations are idempotent. Migration 0019 intentionally deletes the known seeded
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0022 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0024 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
 - All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
@@ -243,6 +247,8 @@ Migrations are idempotent. Migration 0019 intentionally deletes the known seeded
 - `public.has_role('admin')` returning the correct result for admin and customer sessions.
 - Explicit client table/function privileges, so RLS decisions are not blocked by missing `GRANT`s.
 - Storefront showcase visibility, non-admin write blocking, and admin grouping/carousel updates.
+- Showcase-to-catalog event creation, draft moderation state, ticket inventory creation, and edit synchronization.
+- Per-event ticket design validation and booking snapshots.
 - Public demo booking persistence, database-priced totals, validation and private buyer details.
 - Per-ticket token hashing, duplicate email suppression, single-use downloads, unique QR verification, and checked-in ticket rejection.
 - Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.

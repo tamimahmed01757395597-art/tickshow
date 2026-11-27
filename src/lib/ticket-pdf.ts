@@ -7,12 +7,21 @@ export type TicketPdfBooking = {
   event_time_label: string | null;
   event_venue: string | null;
   event_location: string | null;
+  ticket_design_style?: string | null;
+  ticket_design_image_path?: string | null;
 };
 
 export type TicketPdfItem = {
   id: string;
   ticket_number: number;
   token: string;
+};
+
+export type TicketDesignStyle = "classic" | "midnight" | "festival" | "neon";
+
+export type TicketArtwork = {
+  data: string;
+  format: "PNG" | "JPEG";
 };
 
 export interface TicketPdfDocument {
@@ -39,6 +48,41 @@ function display(value: string | null) {
   return value?.trim() || "To be announced";
 }
 
+const TICKET_DESIGNS: Record<
+  TicketDesignStyle,
+  { accent: [number, number, number]; header: [number, number, number]; headerText: [number, number, number] }
+> = {
+  classic: { accent: [202, 255, 66], header: [202, 255, 66], headerText: [4, 14, 14] },
+  midnight: { accent: [125, 100, 255], header: [17, 22, 48], headerText: [255, 255, 255] },
+  festival: { accent: [255, 151, 66], header: [255, 190, 92], headerText: [45, 24, 10] },
+  neon: { accent: [0, 224, 190], header: [5, 39, 48], headerText: [255, 255, 255] },
+};
+
+function getTicketDesign(style: string | null | undefined) {
+  if (style == null || style === "classic") return TICKET_DESIGNS.classic;
+  if (style === "midnight" || style === "festival" || style === "neon") {
+    return TICKET_DESIGNS[style];
+  }
+  throw new Error(`Unsupported ticket design style: ${style}`);
+}
+
+export async function ticketArtworkFromBlob(blob: Blob): Promise<TicketArtwork> {
+  const contentType = blob.type.split(";")[0]?.trim().toLowerCase();
+  const format = contentType === "image/png" ? "PNG" : contentType === "image/jpeg" ? "JPEG" : null;
+  if (!format) throw new Error("Ticket artwork must be a JPEG or PNG image.");
+
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return {
+    data: `data:${contentType};base64,${btoa(binary)}`,
+    format,
+  };
+}
+
 export function getTicketVerificationUrl(
   siteUrl: string,
   ticketId: string,
@@ -54,7 +98,9 @@ export async function addTicketPages(
   tickets: TicketPdfItem[],
   siteUrl: string,
   encodeQr: QrEncoder,
+  artwork?: TicketArtwork | null,
 ) {
+  const design = getTicketDesign(booking.ticket_design_style);
   for (const [index, ticket] of tickets.entries()) {
     if (index > 0) pdf.addPage("a6", "portrait");
 
@@ -65,21 +111,32 @@ export async function addTicketPages(
 
     pdf.setFillColor(255, 255, 255);
     pdf.rect(0, 0, pageWidth, pageHeight, "F");
-    pdf.setFillColor(202, 255, 66);
-    pdf.rect(0, 0, pageWidth, 18, "F");
-    pdf.setTextColor(4, 14, 14);
+    if (artwork) {
+      pdf.addImage(artwork.data, artwork.format, 0, 0, pageWidth, pageHeight);
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(5, 16, pageWidth - 10, pageHeight - 65, "F");
+      pdf.setFillColor(...design.accent);
+      pdf.rect(5, 16, pageWidth - 10, 2, "F");
+    } else {
+      pdf.setFillColor(...design.header);
+      pdf.rect(0, 0, pageWidth, 18, "F");
+    }
+
+    if (artwork) pdf.setTextColor(4, 14, 14);
+    else pdf.setTextColor(...design.headerText);
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(18);
-    pdf.text("TICKSHOW", 8, 12);
+    pdf.text("TICKSHOW", 8, artwork ? 27 : 12);
 
     pdf.setTextColor(20, 20, 20);
     pdf.setFontSize(11);
     const titleLines = pdf.splitTextToSize(booking.event_title, pageWidth - 16).slice(0, 3);
-    pdf.text(titleLines, 8, 27);
-    let y = 27 + titleLines.length * 5 + 2;
+    const titleY = artwork ? 36 : 27;
+    pdf.text(titleLines, 8, titleY);
+    let y = titleY + titleLines.length * 5 + 2;
 
     pdf.setTextColor(154, 43, 25);
-    pdf.setFontSize(8);
+    pdf.setFontSize(artwork ? 7 : 8);
     pdf.text("DEMO / TEST TICKET — NOT VALID FOR PAID ENTRY", 8, y);
     y += 7;
 
@@ -100,11 +157,15 @@ export async function addTicketPages(
       pdf.text(`${label}:`, 8, y);
       pdf.setFont("helvetica", "normal");
       pdf.text(lines, 31, y);
-      y += Math.max(5, lines.length * 4);
+      y += Math.max(artwork ? 4 : 5, lines.length * (artwork ? 3 : 4));
     }
 
     const qrSize = 34;
     const qrY = pageHeight - 49;
+    if (artwork) {
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(pageWidth / 2 - 20, qrY - 2, 40, 42, "F");
+    }
     pdf.addImage(qr, "PNG", (pageWidth - qrSize) / 2, qrY, qrSize, qrSize);
     pdf.setFontSize(7);
     pdf.text("Scan for ticket verification", pageWidth / 2, pageHeight - 11, {

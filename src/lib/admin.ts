@@ -32,6 +32,7 @@ export type OverviewItem = { label: string; value: string; note: string };
 export type Overview = { metrics: OverviewItem[]; analytics: OverviewItem[] };
 
 export type EventView = EventRow & { organizerName: string };
+export type EligibleOrganizer = Pick<OrganizerRow, "id" | "name">;
 export type ShowcaseRecord = Tables["storefront_events"]["Row"];
 export type CustomerView = {
   id: string;
@@ -80,7 +81,10 @@ function summarizeCurrency(amounts: Array<{ amount: number; currency: string }>)
 
 export async function fetchOverview(): Promise<Overview> {
   const client = requireSupabase();
-  const [profiles, assignments, roleRows, organizers, events, tickets, orders, payments, commissions, payouts, reviews] =
+  const [
+    profiles, assignments, roleRows, organizers, events, tickets, orders,
+    payments, commissions, payouts, reviews, showcaseEvents, demoBookings,
+  ] =
     await Promise.all([
       client.from("profiles").select("id", { count: "exact", head: true }),
       client.from("user_roles").select("user_id, role_id"),
@@ -93,9 +97,14 @@ export async function fetchOverview(): Promise<Overview> {
       client.from("organizer_commissions").select("commission_amount, currency"),
       client.from("organizer_payouts").select("amount, currency, status"),
       client.from("reviews").select("id, status"),
+      client.from("storefront_events").select("id, event_group, is_visible"),
+      client.from("storefront_bookings").select("id, ticket_email_status"),
     ]);
 
-  for (const result of [profiles, assignments, roleRows, organizers, events, tickets, orders, payments, commissions, payouts, reviews]) {
+  for (const result of [
+    profiles, assignments, roleRows, organizers, events, tickets, orders,
+    payments, commissions, payouts, reviews, showcaseEvents, demoBookings,
+  ]) {
     if (result.error) throw new Error(result.error.message);
   }
 
@@ -107,6 +116,8 @@ export async function fetchOverview(): Promise<Overview> {
   const orderRows = orders.data ?? [];
   const paymentRows = payments.data ?? [];
   const payoutRows = payouts.data ?? [];
+  const showcaseRows = showcaseEvents.data ?? [];
+  const demoBookingRows = demoBookings.data ?? [];
   const succeededPayments = paymentRows.filter((row) => row.status === "succeeded");
 
   const ordersByEvent = new Map<string, number>();
@@ -140,6 +151,13 @@ export async function fetchOverview(): Promise<Overview> {
       { label: "Staff", value: String(countRole("staff")), note: "Staff role" },
       { label: "Total events", value: String(eventRows.length), note: "All statuses" },
       { label: "Published events", value: String(published), note: "Approved and live" },
+      { label: "Storefront listings", value: String(showcaseRows.length), note: "Showcase records" },
+      {
+        label: "Visible listings",
+        value: String(showcaseRows.filter((row) => row.is_visible).length),
+        note: "Shown on the storefront",
+      },
+      { label: "Demo bookings", value: String(demoBookingRows.length), note: "Not paid orders" },
       {
         label: "Pending approvals",
         value: String(eventRows.filter((row) => row.approval_status === "pending").length),
@@ -191,6 +209,20 @@ export async function fetchOverview(): Promise<Overview> {
         note: "Published and approved of all events",
       },
       {
+        label: "Showcase lineup",
+        value: `${showcaseRows.filter((row) => row.event_group === "upcoming").length} upcoming / ${
+          showcaseRows.filter((row) => row.event_group === "ongoing").length
+        } ongoing / ${showcaseRows.filter((row) => row.event_group === "past").length} past`,
+        note: `${showcaseRows.filter((row) => row.is_visible).length} visible listings`,
+      },
+      {
+        label: "Demo ticket email delivery",
+        value: `${demoBookingRows.filter((row) => row.ticket_email_status === "sent").length} / ${
+          demoBookingRows.length
+        } sent`,
+        note: "Booking ticket emails; separate from paid orders",
+      },
+      {
         label: "Payment success and failure rates",
         value: `${successRate}%`,
         note: `${succeededPayments.length} succeeded of ${paymentRows.length} payments`,
@@ -222,6 +254,17 @@ export async function fetchEvents(): Promise<EventView[]> {
     ...event,
     organizerName: names.get(event.organizer_id) ?? "—",
   }));
+}
+
+export async function fetchEligibleOrganizers(): Promise<EligibleOrganizer[]> {
+  const { data, error } = await requireSupabase()
+    .from("organizers")
+    .select("id, name")
+    .eq("status", "active")
+    .eq("approval_status", "approved")
+    .order("name", { ascending: true });
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }
 
 export async function fetchShowcase(): Promise<ShowcaseRecord[]> {
@@ -271,6 +314,25 @@ export async function uploadShowcaseImage(
 
   const { data } = client.storage.from("event-images").getPublicUrl(path);
   return { path, publicUrl: data.publicUrl };
+}
+
+export async function uploadTicketDesignImage(eventId: string, file: File): Promise<string> {
+  const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : null;
+  if (!extension) {
+    throw new Error("Ticket artwork must be a JPEG or PNG image.");
+  }
+  if (file.size === 0 || file.size > 10 * 1024 * 1024) {
+    throw new Error("Ticket artwork must be larger than 0 bytes and no larger than 10 MB.");
+  }
+
+  const path = `${eventId}/ticket-design-${crypto.randomUUID()}.${extension}`;
+  const { error } = await requireSupabase().storage.from("event-images").upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+  return path;
 }
 
 export async function deleteShowcaseImage(path: string): Promise<void> {

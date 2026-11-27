@@ -1,7 +1,7 @@
 /**
  * TickShow database types.
  *
- * Hand-authored to match supabase/migrations/0001-0020. After linking a real
+ * Hand-authored to match supabase/migrations/0001-0024. After linking a real
  * Supabase project you can regenerate this file with `npm run db:types:remote`.
  */
 
@@ -1025,6 +1025,13 @@ export type Database = {
       storefront_events: Table<
         {
           id: string;
+          normalized_event_id: string | null;
+          organizer_id: string | null;
+          starts_at: string | null;
+          ends_at: string | null;
+          capacity: number | null;
+          ticket_design_style: string;
+          ticket_design_image_path: string | null;
           slug: string;
           title: string;
           category: string;
@@ -1051,6 +1058,13 @@ export type Database = {
         },
         {
           id?: string;
+          normalized_event_id?: string | null;
+          organizer_id?: string | null;
+          starts_at?: string | null;
+          ends_at?: string | null;
+          capacity?: number | null;
+          ticket_design_style?: string;
+          ticket_design_image_path?: string | null;
           slug: string;
           title: string;
           category: string;
@@ -1077,6 +1091,13 @@ export type Database = {
         },
         {
           id?: string;
+          normalized_event_id?: string | null;
+          organizer_id?: string | null;
+          starts_at?: string | null;
+          ends_at?: string | null;
+          capacity?: number | null;
+          ticket_design_style?: string;
+          ticket_design_image_path?: string | null;
           slug?: string;
           title?: string;
           category?: string;
@@ -1114,6 +1135,8 @@ export type Database = {
           event_time_label: string | null;
           event_venue: string | null;
           event_location: string | null;
+          ticket_design_style: string;
+          ticket_design_image_path: string | null;
           quantity: number;
           unit_price_amount: number;
           total_amount: number;
@@ -1140,6 +1163,8 @@ export type Database = {
           event_time_label?: string | null;
           event_venue?: string | null;
           event_location?: string | null;
+          ticket_design_style?: string;
+          ticket_design_image_path?: string | null;
           quantity: number;
           unit_price_amount: number;
           total_amount: number;
@@ -1166,6 +1191,8 @@ export type Database = {
           event_time_label?: string | null;
           event_venue?: string | null;
           event_location?: string | null;
+          ticket_design_style?: string;
+          ticket_design_image_path?: string | null;
           quantity?: number;
           unit_price_amount?: number;
           total_amount?: number;

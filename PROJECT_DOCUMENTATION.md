@@ -122,7 +122,7 @@ Later work in the working tree added migration `0016_grants_and_privileges.sql`,
 - **Hash routing instead of a router library.** `getRoute()` parses `window.location.hash`, so static hosting needs no rewrite rules.
 - **Single-file production build.** `vite-plugin-singlefile` inlines CSS and JS into `dist/index.html`.
 - **Publishable client only.** The browser imports `@supabase/supabase-js` with only the URL and anon key. The service-role key is never used in `VITE_` variables or frontend code.
-- **Dedicated showcase table.** `public.storefront_events` owns presentation data only. The normalized `public.events` table remains the source of truth for inventory, orders and finance.
+- **Linked showcase and event catalog.** `public.storefront_events` owns storefront presentation. New showcase records with an approved organizer, event times and capacity create a linked draft/pending `public.events` record and a General Admission inventory row; showcase edits keep those catalog fields in sync. Each event can also select a built-in ticket style and upload JPEG/PNG artwork, which is snapshotted onto bookings for consistent ticket PDFs. The demo booking flow remains separate from normalized inventory sales, orders and finance.
 - **Secure role assignment.** Clients call `assign_user_role`, `remove_user_role`, `create_admin_invitation` and `accept_admin_invitation` RPCs; direct self-assignment is blocked.
 - **Idempotent migrations.** Every migration uses `IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP ... IF EXISTS`, `ON CONFLICT DO NOTHING` or guarded seeds, so the combined `bootstrap.sql` is safe to re-run.
 
@@ -163,7 +163,7 @@ Later work in the working tree added migration `0016_grants_and_privileges.sql`,
 - **`.env.example`** — placeholder-only template for `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 - **`.gitignore`** — ignores `.env`, `.env.*`, `dist/`, `node_modules/`, `.agents/`, `.firecrawl/` and Supabase CLI state; `.env.example` is the exception.
 - **`supabase/config.toml`** — local Supabase project configuration (`project_id = "tickshow"`, Postgres 15, API 54321, DB 54322, Studio 54323); signup and email confirmations are enabled and `site_url` is `http://localhost:5173`.
-- **`supabase/bootstrap.sql`** — generated concatenation of migrations `0001`–`0016` for manual SQL-editor setup.
+- **`supabase/bootstrap.sql`** — generated concatenation of migrations `0001`–`0024` for manual SQL-editor setup.
 - **`scripts/build-docs-pdf.py`** — renders `PROJECT_DOCUMENTATION.md` to PDF with Python `markdown` and `xhtml2pdf`.
 
 ### 4.4 External assets
@@ -218,10 +218,10 @@ D:\maximalism_tickshow
 │   └── vite-env.d.ts
 ├── supabase/
 │   ├── config.toml
-│   ├── bootstrap.sql                # all 16 migrations combined
+│   ├── bootstrap.sql                # all 24 migrations combined
 │   ├── build-bootstrap.mjs
 │   ├── seed.sql                     # first-admin bootstrap template
-│   ├── migrations/                  # 0001–0016
+│   ├── migrations/                  # 0001–0024
 │   └── tests/run-tests.mjs          # PGlite validation suite
 ├── .env.example
 ├── DESIGN.md
@@ -286,8 +286,8 @@ Supabase Edge Function
 
 ```text
 AdminPanel → src/lib/admin.ts → storefront_events INSERT/UPDATE/DELETE
-                                      ↓ (RLS: public.is_admin())
-Supabase storefront_events (visible rows)
+                                      ↓ (admin RLS + migration 0023 sync trigger)
+Supabase storefront_events ↔ events + General Admission inventory
                                       ↓ (anon SELECT)
 src/lib/storefront.ts → mapRow() → StorefrontEvent[]
                                       ↓
@@ -552,6 +552,8 @@ Application tables, all with RLS enabled:
 | `0020_customer_accounts_and_bookings.sql` | Associate bookings with signed-in customers and snapshot event details |
 | `0021_ticket_delivery_and_one_time_download.sql` | Initial demo ticket delivery fields and RPCs |
 | `0022_secure_storefront_tickets.sql` | Per-ticket hashed QR tokens, private access, resend/download claims and verification |
+| `0023_link_showcase_events_to_catalog.sql` | Link showcase rows to draft catalog events and General Admission inventory |
+| `0024_event_ticket_designs.sql` | Event-specific ticket styles/artwork and booking snapshots |
 
 ### 9.4 Important invariants
 
@@ -728,7 +730,7 @@ npx tsc --noEmit            # type check
 
 ### 13.4 Manual SQL-editor setup
 
-If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL Editor. It applies migrations `0001`–`0016` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before policies and triggers that use them.
+If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL Editor. It applies migrations `0001`–`0024` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before policies and triggers that use them.
 
 - Running a later migration alone used to cause `42883: function ... does not exist`; migrations `0012` and `0015` now bootstrap their own helpers.
 - Migration `0012` deliberately does not run `ALTER TABLE storage.objects ...`; Supabase owns that table and enables its RLS by default.
@@ -844,7 +846,7 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 - Admin reads/writes: `src/lib/admin.ts`
 - Showcase fetch and fallback: `src/lib/storefront.ts`
 - Database contract: `src/types/database.ts`
-- Schema, RLS and policies: `supabase/migrations/0001`–`0016`
+- Schema, RLS and policies: `supabase/migrations/0001`–`0024`
 - Combined manual setup: `supabase/bootstrap.sql`
 - Validation suite: `supabase/tests/run-tests.mjs`
 - PDF renderer: `scripts/build-docs-pdf.py`
@@ -854,7 +856,7 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 - `৳` denotes Bangladeshi taka.
 - Code identifiers are shown in backticks; user-facing UI strings are shown in quotation marks.
 - File paths are relative to the repository root unless stated otherwise.
-- "Showcase" refers to `public.storefront_events`; "events" without qualification refers to the normalized `public.events` source of truth.
+- "Showcase" refers to `public.storefront_events`; "events" without qualification refers to the normalized `public.events` catalog. New showcase events are linked to that catalog after the required operational details are provided.
 
 ---
 

@@ -830,6 +830,80 @@ async function testStorefrontShowcase() {
     await q(
       "UPDATE public.storefront_events SET is_visible = false WHERE slug = 'showcase-hidden'",
     );
+
+    await expectError(
+      "showcase catalog event requires complete operational details",
+      `INSERT INTO public.storefront_events (
+        slug, title, category, date_label, date_value, organizer_id
+      ) VALUES (
+        'showcase-incomplete', 'Incomplete Catalog Event', 'Concerts & Music',
+        'Test date', CURRENT_DATE, $1
+      )`,
+      [ORG.A],
+    );
+
+    const linked = await q(
+      `INSERT INTO public.storefront_events (
+        slug, title, category, date_label, date_value, price_amount, event_group,
+        organizer_id, starts_at, ends_at, capacity
+      ) VALUES (
+        'showcase-linked', 'Linked Showcase Event', 'Concerts & Music',
+        'Test date', CURRENT_DATE + 10, 950, 'upcoming', $1,
+        now() + interval '10 days', now() + interval '11 days', 60
+      )
+      RETURNING normalized_event_id`,
+      [ORG.A],
+    );
+    const catalogEvent = await q(
+      `SELECT title, status, approval_status, capacity
+       FROM public.events WHERE id = $1`,
+      [linked.rows[0]?.normalized_event_id],
+    );
+    const ticketType = await q(
+      `SELECT id, name, price_amount, quantity_total, max_per_order
+       FROM public.ticket_types WHERE event_id = $1`,
+      [linked.rows[0]?.normalized_event_id],
+    );
+    const inventory = await q(
+      `SELECT total_quantity, available_quantity FROM public.ticket_inventory
+       WHERE ticket_type_id = $1`,
+      [ticketType.rows[0]?.id],
+    );
+    ok(
+      "showcase creation adds a pending catalog event and General Admission inventory",
+      catalogEvent.rows[0]?.title === "Linked Showcase Event" &&
+        catalogEvent.rows[0]?.status === "draft" &&
+        catalogEvent.rows[0]?.approval_status === "pending" &&
+        Number(catalogEvent.rows[0]?.capacity) === 60 &&
+        ticketType.rows[0]?.name === "General Admission" &&
+        Number(ticketType.rows[0]?.price_amount) === 950 &&
+        Number(ticketType.rows[0]?.quantity_total) === 60 &&
+        Number(ticketType.rows[0]?.max_per_order) === 8 &&
+        Number(inventory.rows[0]?.total_quantity) === 60 &&
+        Number(inventory.rows[0]?.available_quantity) === 60,
+      JSON.stringify({ event: catalogEvent.rows[0], ticketType: ticketType.rows[0], inventory: inventory.rows[0] }),
+    );
+
+    await q(
+      `UPDATE public.storefront_events SET title = 'Updated Showcase Event', capacity = 45
+       WHERE slug = 'showcase-linked'`,
+    );
+    const synced = await q(
+      `SELECT e.title, e.capacity, tt.quantity_total, ti.total_quantity
+       FROM public.storefront_events se
+       JOIN public.events e ON e.id = se.normalized_event_id
+       JOIN public.ticket_types tt ON tt.event_id = e.id
+       JOIN public.ticket_inventory ti ON ti.ticket_type_id = tt.id
+       WHERE se.slug = 'showcase-linked'`,
+    );
+    ok(
+      "showcase edits keep linked catalog details and inventory synchronized",
+      synced.rows[0]?.title === "Updated Showcase Event" &&
+        Number(synced.rows[0]?.capacity) === 45 &&
+        Number(synced.rows[0]?.quantity_total) === 45 &&
+        Number(synced.rows[0]?.total_quantity) === 45,
+      JSON.stringify(synced.rows[0]),
+    );
   });
 
   await asAnon(async () => {
@@ -851,12 +925,21 @@ async function testStorefrontBookings() {
     await q(
       `INSERT INTO public.storefront_events (
         slug, title, category, date_label, date_value, time_label, venue, location,
-        price_amount, event_group, is_visible
+        price_amount, event_group, is_visible, ticket_design_style, ticket_design_image_path
       ) VALUES
-        ('booking-upcoming', 'Booking Test Event', 'Concerts & Music', 'Old sample date', DATE '2000-01-01', '8:00 PM', 'Test Hall', 'Dhaka', 1200, 'upcoming', true),
-        ('booking-ongoing', 'Ongoing Test Event', 'Sports', 'Old sample date', DATE '2000-01-01', '7:00 PM', 'Test Ground', 'Dhaka', 800, 'ongoing', true),
-        ('booking-hidden', 'Hidden Test Event', 'Sports', 'Test date', CURRENT_DATE, '6:00 PM', 'Test Hall', 'Dhaka', 400, 'upcoming', false),
-        ('booking-past', 'Past Test Event', 'Sports', 'Test date', CURRENT_DATE, '6:00 PM', 'Test Hall', 'Dhaka', 400, 'past', true)`,
+        ('booking-upcoming', 'Booking Test Event', 'Concerts & Music', 'Old sample date', DATE '2000-01-01', '8:00 PM', 'Test Hall', 'Dhaka', 1200, 'upcoming', true, 'festival', 'booking-upcoming/ticket-design.png'),
+        ('booking-ongoing', 'Ongoing Test Event', 'Sports', 'Old sample date', DATE '2000-01-01', '7:00 PM', 'Test Ground', 'Dhaka', 800, 'ongoing', true, 'classic', NULL),
+        ('booking-hidden', 'Hidden Test Event', 'Sports', 'Test date', CURRENT_DATE, '6:00 PM', 'Test Hall', 'Dhaka', 400, 'upcoming', false, 'classic', NULL),
+        ('booking-past', 'Past Test Event', 'Sports', 'Test date', CURRENT_DATE, '6:00 PM', 'Test Hall', 'Dhaka', 400, 'past', true, 'classic', NULL)`,
+    );
+    await expectError(
+      "unsupported event ticket design is rejected",
+      `INSERT INTO public.storefront_events (
+        slug, title, category, date_label, date_value, ticket_design_style
+      ) VALUES (
+        'invalid-ticket-design', 'Invalid Ticket Design', 'Sports',
+        'Test date', CURRENT_DATE, 'unknown'
+      )`,
     );
   });
 
@@ -888,7 +971,8 @@ async function testStorefrontBookings() {
     );
     primaryBookingReference = result.rows[0]?.booking_reference;
     const snapshot = await q(
-      `SELECT event_date_label, event_time_label, event_venue, event_location
+      `SELECT event_date_label, event_time_label, event_venue, event_location,
+              ticket_design_style, ticket_design_image_path
        FROM public.storefront_bookings WHERE booking_reference = $1`,
       [result.rows[0]?.booking_reference],
     );
@@ -897,7 +981,9 @@ async function testStorefrontBookings() {
       snapshot.rows[0]?.event_date_label === "Old sample date" &&
         snapshot.rows[0]?.event_time_label === "8:00 PM" &&
         snapshot.rows[0]?.event_venue === "Test Hall" &&
-        snapshot.rows[0]?.event_location === "Dhaka",
+        snapshot.rows[0]?.event_location === "Dhaka" &&
+        snapshot.rows[0]?.ticket_design_style === "festival" &&
+        snapshot.rows[0]?.ticket_design_image_path === "booking-upcoming/ticket-design.png",
       JSON.stringify(snapshot.rows[0]),
     );
     const ongoing = await q(
