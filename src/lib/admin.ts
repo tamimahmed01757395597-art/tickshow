@@ -220,8 +220,27 @@ export async function fetchShowcase(): Promise<ShowcaseRecord[]> {
 export async function createShowcaseEvent(
   record: Tables["storefront_events"]["Insert"],
 ): Promise<void> {
-  const { error } = await requireSupabase().from("storefront_events").insert(record);
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("storefront_events")
+    .insert(record)
+    .select("id, normalized_event_id")
+    .single();
   if (error) throw new Error(error.message);
+  if (data.normalized_event_id) return;
+
+  const { error: cleanupError } = await client
+    .from("storefront_events")
+    .delete()
+    .eq("id", data.id);
+  if (cleanupError) {
+    throw new Error(
+      `The showcase event was saved without a catalog event, and cleanup failed: ${cleanupError.message}`,
+    );
+  }
+  throw new Error(
+    "The showcase event was not linked to the admin Events catalog. Verify migrations 0023 and 0027 and the showcase sync trigger, then try again.",
+  );
 }
 
 const SHOWCASE_IMAGE_EXTENSIONS: Record<string, string> = {

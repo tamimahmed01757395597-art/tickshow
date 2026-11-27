@@ -555,7 +555,7 @@ Application tables, all with RLS enabled:
 | `0024_event_ticket_designs.sql` | Event-specific ticket styles/artwork and booking snapshots |
 | `0025_organizer_invitations.sql` | Email invitations and pending organizer account acceptance |
 | `0026_admin_organizer_deletion.sql` | Guarded permanent deletion of unlinked organizer profiles |
-| `0027_remove_organizer_subsystem.sql` | Preserve event organizer names as text, restrict event writes to admins, remove organizer and payout/commission data |
+| `0027_remove_organizer_subsystem.sql` | Preserve event organizer names as text, restrict event writes to admins, remove organizer and payout/commission data; first delete the empty organizer-logo bucket through Supabase Storage |
 
 ### 9.4 Important invariants
 

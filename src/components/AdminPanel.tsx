@@ -1213,6 +1213,12 @@ function ShowcaseSection() {
               ),
             },
             {
+              label: "Catalog",
+              render: (row) => (
+                <StatusPill value={row.normalized_event_id ? "linked" : "showcase_only"} />
+              ),
+            },
+            {
               label: "Display",
               render: (row) => (
                 <div className="admin-cell-title">

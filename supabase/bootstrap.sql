@@ -4252,6 +4252,19 @@ GRANT EXECUTE ON FUNCTION public.delete_organizer(uuid) TO authenticated;
 -- Replace organizer accounts with administrator-entered event labels and
 -- remove organizer accounts, invitations, staff, payout and commission data.
 
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM storage.objects WHERE bucket_id = 'organizer-logos') THEN
+    RAISE EXCEPTION
+      'Delete organizer logo files through Supabase Storage, then retry migration 0027';
+  END IF;
+  IF EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'organizer-logos') THEN
+    RAISE EXCEPTION
+      'Delete the empty organizer-logos bucket through Supabase Storage, then retry migration 0027';
+  END IF;
+END;
+$$;
+
 ALTER TABLE public.events ADD COLUMN organizer_name text;
 UPDATE public.events e
 SET organizer_name = coalesce(nullif(btrim(o.name), ''), 'Unknown organizer')
@@ -4492,16 +4505,6 @@ DROP POLICY IF EXISTS storage_organizer_logo_insert ON storage.objects;
 DROP POLICY IF EXISTS storage_organizer_logo_update ON storage.objects;
 DROP POLICY IF EXISTS storage_organizer_logo_delete ON storage.objects;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM storage.objects WHERE bucket_id = 'organizer-logos') THEN
-    RAISE EXCEPTION
-      'Remove organizer logo files in Supabase Storage before applying this migration';
-  END IF;
-END;
-$$;
-DELETE FROM storage.buckets WHERE id = 'organizer-logos';
-
 DELETE FROM public.audit_logs
 WHERE actor_role::text = 'organizer'
    OR entity_type IN (
@@ -4738,3 +4741,21 @@ CREATE TYPE public.notification_type AS ENUM (
 );
 ALTER TABLE public.notifications
   ALTER COLUMN type TYPE public.notification_type USING type::public.notification_type;
+
+-- ===== 0028_backfill_existing_customer_profiles.sql =====
+-- Backfill profiles for Auth users created before the profile trigger was installed.
+-- Existing profile data is left unchanged.
+
+INSERT INTO public.profiles (id, email, full_name, created_at)
+SELECT
+  users.id,
+  users.email,
+  coalesce(
+    nullif(btrim(users.raw_user_meta_data ->> 'full_name'), ''),
+    nullif(split_part(users.email, '@', 1), '')
+  ),
+  coalesce(users.created_at, now())
+FROM auth.users users
+LEFT JOIN public.profiles profiles ON profiles.id = users.id
+WHERE profiles.id IS NULL
+ON CONFLICT (id) DO NOTHING;

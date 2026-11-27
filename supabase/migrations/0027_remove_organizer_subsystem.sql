@@ -1,6 +1,19 @@
 -- Replace organizer accounts with administrator-entered event labels and
 -- remove organizer accounts, invitations, staff, payout and commission data.
 
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM storage.objects WHERE bucket_id = 'organizer-logos') THEN
+    RAISE EXCEPTION
+      'Delete organizer logo files through Supabase Storage, then retry migration 0027';
+  END IF;
+  IF EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'organizer-logos') THEN
+    RAISE EXCEPTION
+      'Delete the empty organizer-logos bucket through Supabase Storage, then retry migration 0027';
+  END IF;
+END;
+$$;
+
 ALTER TABLE public.events ADD COLUMN organizer_name text;
 UPDATE public.events e
 SET organizer_name = coalesce(nullif(btrim(o.name), ''), 'Unknown organizer')
@@ -240,16 +253,6 @@ DROP POLICY IF EXISTS payouts_admin_update ON public.organizer_payouts;
 DROP POLICY IF EXISTS storage_organizer_logo_insert ON storage.objects;
 DROP POLICY IF EXISTS storage_organizer_logo_update ON storage.objects;
 DROP POLICY IF EXISTS storage_organizer_logo_delete ON storage.objects;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM storage.objects WHERE bucket_id = 'organizer-logos') THEN
-    RAISE EXCEPTION
-      'Remove organizer logo files in Supabase Storage before applying this migration';
-  END IF;
-END;
-$$;
-DELETE FROM storage.buckets WHERE id = 'organizer-logos';
 
 DELETE FROM public.audit_logs
 WHERE actor_role::text = 'organizer'

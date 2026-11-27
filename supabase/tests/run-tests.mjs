@@ -15,6 +15,7 @@ const USER = {
   staff: id(4),
   customerA: id(5),
   customerB: id(6),
+  legacy: id(90),
 };
 const EVENT = { publicA: id(201), draftA: id(202), publicB: id(203), draftB: id(204) };
 const TICKET_TYPE = id(301);
@@ -119,7 +120,8 @@ async function applyShims() {
     CREATE TABLE auth.users (
       id uuid PRIMARY KEY,
       email text,
-      raw_user_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb
+      raw_user_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
     );
 
     CREATE FUNCTION auth.jwt() RETURNS jsonb
@@ -176,12 +178,24 @@ async function applyMigrations() {
     .filter((file) => file.endsWith(".sql"))
     .sort();
   for (const file of files) {
+    if (file === "0013_admin_auth_and_invitations.sql") {
+      await q(
+        `INSERT INTO auth.users (id, email, raw_user_meta_data, created_at)
+         VALUES ($1, 'legacy-customer@tickshow.test', '{"full_name":"Legacy Customer"}'::jsonb,
+                 '2024-01-02T03:04:05Z')`,
+        [USER.legacy],
+      );
+    }
     let sql = await readFile(path.join(migrationsDir, file), "utf8");
     if (file === "0021_ticket_delivery_and_one_time_download.sql") {
       sql = sql.replace(
         "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;",
         "-- pgcrypto is represented by deterministic test shims in PGlite.",
       );
+    }
+    if (file === "0027_remove_organizer_subsystem.sql") {
+      // Simulate deleting the empty managed bucket through Supabase Storage.
+      await db.exec("DELETE FROM storage.buckets WHERE id = 'organizer-logos'");
     }
     await db.exec(sql);
     console.log(`  APPLIED ${file}`);
@@ -338,6 +352,18 @@ async function seedTestContext() {
 
 async function testSchema() {
   console.log("\n[1] Schema, constraints and triggers");
+  const legacyProfile = await q(
+    `SELECT email, full_name, created_at FROM public.profiles WHERE id = $1`,
+    [USER.legacy],
+  );
+  ok(
+    "migration backfills profiles for existing Auth users and preserves their signup date",
+    legacyProfile.rows[0]?.email === "legacy-customer@tickshow.test" &&
+      legacyProfile.rows[0]?.full_name === "Legacy Customer" &&
+      new Date(legacyProfile.rows[0]?.created_at).toISOString() === "2024-01-02T03:04:05.000Z",
+    JSON.stringify(legacyProfile.rows[0]),
+  );
+
   const tableCount = await count(
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
