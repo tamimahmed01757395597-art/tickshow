@@ -80,7 +80,7 @@ Ticket issuance is handled by the authenticated `send-ticket-email` Edge Functio
 
 Admins can select a built-in ticket style (Classic, Midnight, Festival or Neon) and optionally upload event-specific JPEG/PNG artwork in **Event showcase**. Booking creation snapshots both settings, so a later design change does not alter tickets already booked. The PDF renderer places booking details and the unique QR in fixed clear areas over the artwork; keep the A6 portrait canvas clear enough for those overlays.
 
-The organizer selector includes **Invite a new organizer**. The authenticated `invite-organizer` Edge Function stores a hashed, single-use seven-day invitation and emails the signup link through Brevo. Acceptance creates an organizer account in pending status; an administrator must approve it before it can be selected for an event.
+The organizer selector includes **Invite a new organizer**. The authenticated `invite-organizer` Edge Function stores a hashed, single-use seven-day invitation in `public.organizer_invitations` and emails the signup link through Brevo. Invitations are visible in the Admin panel's **Organizers** section; acceptance creates an organizer account in pending status, which an administrator must approve before it can be selected for an event.
 
 ### Important invariants
 

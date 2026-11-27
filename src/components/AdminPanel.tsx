@@ -9,6 +9,8 @@ import {
   type CustomerView,
   type EventView,
   type OrderView,
+  type OrganizerInvitationView,
+  type OrganizerData,
   type OrganizerView,
   type PaymentView,
   type PayoutView,
@@ -44,7 +46,7 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   overview: "Live totals computed directly from authorized database reads.",
   events: "Review, approve, publish and edit event listings across TickShow.",
   customers: "Find customer accounts and manage account status.",
-  organizers: "Manage organizer profiles, verification and account status.",
+  organizers: "Manage organizer profiles, invitations, verification and account status.",
   orders: "Review orders and update operational order status.",
   payments: "Read-only payment records maintained by trusted webhook processing.",
   payouts: "Track organizer payout requests and settle approved payouts.",
@@ -615,13 +617,13 @@ function CustomersSection() {
 }
 
 function OrganizersSection() {
-  const { data, error, loading, reload } = useAdminFetch(api.fetchOrganizers);
+  const { data, error, loading, reload } = useAdminFetch<OrganizerData>(api.fetchOrganizerData);
   const [editing, setEditing] = useState<OrganizerView | null>(null);
 
   return (
     <SectionState loading={loading} error={error} onRetry={reload}>
       <DataTable<OrganizerView>
-        rows={data ?? []}
+        rows={data?.organizers ?? []}
         rowKey={(row) => row.id}
         columns={[
           {
@@ -678,6 +680,45 @@ function OrganizersSection() {
           },
         ]}
       />
+      <section className="admin-section-block">
+        <div className="admin-section-heading">
+          <div>
+            <h2>Organizer invitations</h2>
+            <p>Invitations are recorded here until they are accepted or expire.</p>
+          </div>
+        </div>
+        <DataTable<OrganizerInvitationView>
+          rows={data?.invitations ?? []}
+          rowKey={(row) => row.id}
+          columns={[
+            {
+              label: "Invitee",
+              render: (row) => (
+                <div className="admin-cell-title">
+                  <strong>{row.organizer_name}</strong>
+                  <span>{row.email}</span>
+                </div>
+              ),
+            },
+            {
+              label: "Status",
+              render: (row) => (
+                <StatusPill
+                  value={
+                    row.used_at
+                      ? "accepted"
+                      : new Date(row.expires_at).getTime() <= Date.now()
+                        ? "expired"
+                        : "pending"
+                  }
+                />
+              ),
+            },
+            { label: "Created", render: (row) => formatDate(row.created_at) },
+            { label: "Expires", render: (row) => formatDate(row.expires_at) },
+          ]}
+        />
+      </section>
       {editing && (
         <EditModal
           title={`Edit ${editing.name}`}

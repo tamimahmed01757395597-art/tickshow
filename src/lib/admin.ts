@@ -10,6 +10,7 @@ type EventRow = Tables["events"]["Row"];
 type OrganizerRow = Tables["organizers"]["Row"];
 type OrderRow = Tables["orders"]["Row"];
 type StorefrontBookingRow = Tables["storefront_bookings"]["Row"];
+type OrganizerInvitationRow = Tables["organizer_invitations"]["Row"];
 type PaymentRow = Tables["payments"]["Row"];
 type PayoutRow = Tables["organizer_payouts"]["Row"];
 type ReviewRow = Tables["reviews"]["Row"];
@@ -45,6 +46,11 @@ export type CustomerView = {
   created_at: string;
 };
 export type OrganizerView = OrganizerRow & { ownerName: string };
+export type OrganizerInvitationView = Pick<
+  OrganizerInvitationRow,
+  "id" | "email" | "organizer_name" | "organizer_slug" | "expires_at" | "used_at" | "created_at"
+>;
+export type OrganizerData = { organizers: OrganizerView[]; invitations: OrganizerInvitationView[] };
 export type OrderView = OrderRow & { eventTitle: string };
 export type StorefrontBookingView = StorefrontBookingRow;
 export type PaymentView = PaymentRow & { orderNumber: string };
@@ -408,19 +414,27 @@ export async function fetchCustomers(): Promise<CustomerView[]> {
   }));
 }
 
-export async function fetchOrganizers(): Promise<OrganizerView[]> {
+export async function fetchOrganizerData(): Promise<OrganizerData> {
   const client = requireSupabase();
-  const [organizers, profiles] = await Promise.all([
+  const [organizers, profiles, invitations] = await Promise.all([
     client.from("organizers").select("*").order("created_at", { ascending: false }),
     client.from("profiles").select("id, full_name, email"),
+    client
+      .from("organizer_invitations")
+      .select("id, email, organizer_name, organizer_slug, expires_at, used_at, created_at")
+      .order("created_at", { ascending: false }),
   ]);
   if (organizers.error) throw new Error(organizers.error.message);
   if (profiles.error) throw new Error(profiles.error.message);
+  if (invitations.error) throw new Error(invitations.error.message);
   const owners = new Map((profiles.data ?? []).map((row) => [row.id, row.full_name ?? row.email ?? "—"]));
-  return (organizers.data ?? []).map((row) => ({
-    ...row,
-    ownerName: owners.get(row.owner_id) ?? "—",
-  }));
+  return {
+    organizers: (organizers.data ?? []).map((row) => ({
+      ...row,
+      ownerName: owners.get(row.owner_id) ?? "—",
+    })),
+    invitations: invitations.data ?? [],
+  };
 }
 
 export async function fetchOrders(): Promise<OrderView[]> {
