@@ -277,15 +277,61 @@ function StyleSheet() {
         display: none;
       }
 
+      @media (max-width: 900px) and (min-width: 641px) {
+        #tickshow-footer-reveal .site-footer .page-wrap {
+          width: min(calc(100% - 40px), 760px);
+          padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-ticket {
+          border-radius: 20px;
+        }
+
+        #tickshow-footer-reveal .site-footer .ticket-body {
+          padding: 12px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-main {
+          gap: 12px;
+          padding-bottom: 12px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-brand-block p {
+          margin-block: 6px;
+          font-size: 13px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column h2 {
+          margin-bottom: 0;
+          font-size: 10px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-link-column a,
+        #tickshow-footer-reveal .site-footer .footer-link-column button {
+          min-height: 36px;
+          font-size: 13px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-bottom {
+          gap: 6px 10px;
+          padding-top: 8px;
+          font-size: 10px;
+        }
+
+        #tickshow-footer-reveal .site-footer .footer-bottom a {
+          min-height: 36px;
+        }
+      }
+
       @media (max-width: 640px) {
         #tickshow-footer-reveal .site-footer .page-wrap {
           width: min(calc(100% - 32px), 560px);
-          padding-block: 18px calc(18px + env(safe-area-inset-bottom, 0px));
+          padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px));
         }
 
         #tickshow-footer-reveal .site-footer .footer-ticket {
           border: 1px solid color-mix(in srgb, var(--footer-ink) 24%, transparent);
-          border-radius: 28px;
+          border-radius: 22px;
           background: linear-gradient(
             145deg,
             rgba(255, 255, 255, 0.1),
@@ -300,13 +346,13 @@ function StyleSheet() {
         }
 
         #tickshow-footer-reveal .site-footer .ticket-body {
-          padding: 18px 14px;
+          padding: 12px 12px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-main {
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-          padding-bottom: 18px;
+          gap: 8px;
+          padding-bottom: 10px;
         }
 
         #tickshow-footer-reveal .site-footer .footer-brand-block {
@@ -315,7 +361,7 @@ function StyleSheet() {
           align-items: center;
           justify-content: space-between;
           gap: 10px;
-          padding: 2px 2px 16px;
+          padding: 2px 2px 10px;
           border-bottom: 1px dashed var(--footer-rule);
         }
 
@@ -356,13 +402,13 @@ function StyleSheet() {
           display: flex;
           width: 100%;
           min-width: 0;
-          min-height: 42px;
+          min-height: 36px;
           align-items: center;
           justify-content: space-between;
           gap: 4px;
-          padding: 6px 8px;
+          padding: 4px 8px;
           border: 1px solid color-mix(in srgb, var(--footer-ink) 10%, transparent);
-          border-radius: 12px;
+          border-radius: 10px;
           background: rgba(0, 0, 0, 0.14);
           font-size: 12px;
           line-height: 1.3;
@@ -392,8 +438,8 @@ function StyleSheet() {
         #tickshow-footer-reveal .site-footer .footer-bottom {
           align-items: center;
           flex-direction: column;
-          gap: 14px;
-          padding-top: 18px;
+          gap: 8px;
+          padding-top: 10px;
           text-align: center;
         }
 
@@ -414,10 +460,10 @@ function StyleSheet() {
         }
 
         #tickshow-footer-reveal .site-footer .footer-social-compact a {
-          width: 48px;
-          min-width: 48px;
-          height: 48px;
-          min-height: 48px;
+          width: 44px;
+          min-width: 44px;
+          height: 44px;
+          min-height: 44px;
           justify-content: center;
           border: 1px solid color-mix(in srgb, var(--footer-ink) 18%, transparent);
           border-radius: 16px;
