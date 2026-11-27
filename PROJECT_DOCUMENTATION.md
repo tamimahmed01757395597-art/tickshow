@@ -50,7 +50,7 @@ The original application was a self-contained frontend preview. On **27 November
 - **Invite-only administrator registration** using single-use hashed invitation tokens.
 - **Role-based admin panel** with 11 live sections for operational data and role management.
 - **Admin-managed storefront showcase** for upcoming, ongoing and past event cards, plus carousel membership and ordering.
-- **Supabase Edge Function + Resend** for authenticated ticket email delivery, private PDF storage and one-time account downloads.
+- **Supabase Edge Function + Brevo** for authenticated ticket email delivery, private PDF storage and one-time account downloads.
 - **Row Level Security**, moderation triggers, immutable financial fields, audit logging and storage policies.
 - **Vercel deployment** using public `VITE_` environment variables injected at build time.
 
@@ -279,7 +279,7 @@ Supabase project
   └── Storage (5 buckets with path-scoped policies)
        └── private multi-page demo PDFs
 Supabase Edge Function
-  └── send-ticket-email → jsPDF + QR code → Resend
+  └── send-ticket-email → jsPDF + QR code → Brevo transactional email
 ```
 
 ### 6.3 Storefront showcase data flow

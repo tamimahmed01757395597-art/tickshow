@@ -88,7 +88,7 @@ export async function sendTicketEmail(
     throw new Error(
       await getFunctionErrorMessage(
         error,
-        "The demo ticket email could not be sent. Check Resend settings and try again.",
+        "The demo ticket email could not be sent. Check Brevo settings and try again.",
       ),
     );
   }

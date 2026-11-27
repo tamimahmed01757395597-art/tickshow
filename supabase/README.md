@@ -72,7 +72,7 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 
 The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. These showcase records are separate from normalized `orders` because showcase events do not have ticket inventory configured.
 
-Ticket issuance is handled by the authenticated `send-ticket-email` Edge Function. It creates one cryptographically random token per ticket, stores only SHA-256 token hashes in the private `storefront_tickets` table, builds an A6 PDF with a unique QR code on each page, and stores the PDF in the private `ticket-files` bucket. Resend uses the booking's database email, never a browser-provided recipient. Account PDF downloads use a single-use database claim and a short-lived signed URL. All generated tickets and email copy are marked DEMO / TEST and are not valid for paid entry.
+Ticket issuance is handled by the authenticated `send-ticket-email` Edge Function. It creates one cryptographically random token per ticket, stores only SHA-256 token hashes in the private `storefront_tickets` table, builds an A6 PDF with a unique QR code on each page, and stores the PDF in the private `ticket-files` bucket. Brevo receives the booking's database email, never a browser-provided recipient. Account PDF downloads use a single-use database claim and a short-lived signed URL. All generated tickets and email copy are marked DEMO / TEST and are not valid for paid entry.
 
 ### Important invariants
 
@@ -96,6 +96,7 @@ Ticket issuance is handled by the authenticated `send-ticket-email` Edge Functio
 - Checkout requires a signed-in account; bookings are tied to the authenticated user and shown in `#/account`.
 - The account dashboard supports booking history, one-time PDF ticket downloads, email delivery status and explicit email retry, name updates, sign-out, and password-confirmed account deletion.
 - `#/forgot-password` sends a Supabase recovery email. `/auth/callback` handles confirmation and recovery links and provides the password update page.
+- Ticket delivery uses Brevo's transactional email API. Supabase Auth confirmation and recovery emails use Supabase's configured Auth SMTP provider; to send those through Brevo too, configure Brevo SMTP separately in **Authentication → SMTP Settings**. Brevo's documented SMTP setup requires an authenticated domain, and its SMTP credentials are separate from the transactional API key. Changing the email provider does not replace the required Auth redirect URL and Vercel callback rewrite.
 - Account deletion is immediate after password reauthentication; deletion-confirmation email delivery is not implemented. Financial order records are retained but anonymized.
 - Configure Supabase Auth **Site URL** and add the production `https://YOUR_DOMAIN/auth/callback` URL to **Redirect URLs**. Also allow the local callback URL when developing. Vercel rewrites `/auth/callback` to the SPA.
 
@@ -172,6 +173,17 @@ Copy `.env.example` to `.env.local` and fill values locally only.
 
 Real credentials are not committed. `.gitignore` ignores `.env` and `.env.*` except `.env.example`.
 
+Set these as Supabase Edge Function secrets (not Vercel/frontend variables):
+
+| Secret | Purpose |
+| --- | --- |
+| `BREVO_API_KEY` | Brevo API key used for transactional ticket email |
+| `BREVO_FROM_EMAIL` | Sender email address verified in Brevo |
+| `BREVO_FROM_NAME` | Optional sender display name; defaults to `TickShow` |
+| `SITE_URL` | Deployed storefront origin used for QR verification URLs and CORS |
+
+Brevo's API sends the PDF attachment using `BREVO_FROM_EMAIL`. Add and verify the sender in Brevo before testing. Brevo may require domain authentication for some sender domains or account states; use the exact API error surfaced by the app and check Brevo transactional logs if delivery fails.
+
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
 If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0022` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
@@ -185,10 +197,12 @@ npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_REF
 npm run db:migrate
 npm run db:types:remote
-supabase secrets set RESEND_API_KEY=re_... "RESEND_FROM_EMAIL=TickShow <onboarding@resend.dev>" SITE_URL=https://your-site.vercel.app
-supabase functions deploy send-ticket-email
+npx supabase@latest secrets set BREVO_API_KEY=YOUR_BREVO_API_KEY BREVO_FROM_EMAIL=YOUR_VERIFIED_SENDER_EMAIL BREVO_FROM_NAME=TickShow SITE_URL=https://your-site.vercel.app --remote=YOUR_PROJECT_REF
+npx supabase@latest functions deploy send-ticket-email --remote=YOUR_PROJECT_REF
 npm run dev
 ```
+
+You can set the same Edge Function secrets in **Supabase Dashboard → Edge Functions → Secrets** instead of using the CLI. Never put the Brevo API key in a `VITE_` variable. If you also want Supabase Auth confirmation/recovery messages sent by Brevo, configure SMTP separately in **Authentication → SMTP Settings** using host `smtp-relay.brevo.com`, port `587`, the SMTP login shown in Brevo, and a Brevo SMTP key (not the API key). Brevo's SMTP setup currently requires an authenticated domain; this is not needed for ticket delivery through the transactional API.
 
 Local only:
 
@@ -233,7 +247,7 @@ Migrations are idempotent. Migration 0019 intentionally deletes the known seeded
 - Per-ticket token hashing, duplicate email suppression, single-use downloads, unique QR verification, and checked-in ticket rejection.
 - Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.
 
-Latest local validation: 98 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Live Supabase and Resend delivery have not been tested.
+Latest local validation: 98 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Live Supabase and Brevo delivery have not been tested.
 
 ## 10. Not included
 

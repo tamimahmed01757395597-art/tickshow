@@ -138,10 +138,13 @@ Deno.serve(async (request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    const resendFrom = Deno.env.get("RESEND_FROM_EMAIL")?.trim() ||
-      "TickShow <onboarding@resend.dev>";
-    if (!supabaseUrl || !anonKey || !serviceRoleKey || !resendKey || !siteUrl) {
+    const brevoApiKey = Deno.env.get("BREVO_API_KEY");
+    const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL")?.trim();
+    const brevoFromName = Deno.env.get("BREVO_FROM_NAME")?.trim() || "TickShow";
+    if (
+      !supabaseUrl || !anonKey || !serviceRoleKey || !brevoApiKey ||
+      !brevoFromEmail || !siteUrl
+    ) {
       throw new Error("Ticket delivery is not configured.");
     }
 
@@ -338,34 +341,50 @@ Deno.serve(async (request) => {
     }
 
     const pdfBase64 = toBase64(await pdfBlob.arrayBuffer());
-    const resendResponse = await fetch("https://api.resend.com/emails", {
+    const brevoResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${resendKey}`,
+        "api-key": brevoApiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: resendFrom,
-        to: [booking.buyer_email],
+        sender: { name: brevoFromName, email: brevoFromEmail },
+        to: [{ email: booking.buyer_email, name: booking.buyer_name }],
         subject: `Your TickShow DEMO ticket — ${booking.event_title}`,
-        html: `<div style="font-family:Arial,sans-serif;color:#111;max-width:640px">
+        htmlContent: `<div style="font-family:Arial,sans-serif;color:#111;max-width:640px">
           <h1>Your TickShow demo ticket is attached</h1>
           <p>Hi ${escapeHtml(booking.buyer_name)}, the PDF for
           <strong>${escapeHtml(booking.event_title)}</strong> is attached.</p>
           <p>Booking reference: <strong>${escapeHtml(booking.booking_reference)}</strong></p>
           <p>This is a DEMO / TEST ticket. No payment was taken and it is not valid for paid event entry.</p>
         </div>`,
-        attachments: [{
-          filename: `tickshow-demo-${booking.booking_reference.toLowerCase()}.pdf`,
+        attachment: [{
+          name: `tickshow-demo-${booking.booking_reference.toLowerCase()}.pdf`,
           content: pdfBase64,
         }],
       }),
     });
 
-    if (!resendResponse.ok) {
-      console.error("Resend rejected demo ticket email:", resendResponse.status);
+    if (!brevoResponse.ok) {
+      let providerMessage = "";
+      try {
+        const responseBody: unknown = await brevoResponse.json();
+        if (
+          responseBody &&
+          typeof responseBody === "object" &&
+          "message" in responseBody &&
+          typeof responseBody.message === "string"
+        ) {
+          providerMessage = responseBody.message.slice(0, 400);
+        }
+      } catch {
+        providerMessage = "";
+      }
+      console.error("Brevo rejected demo ticket email:", brevoResponse.status);
       throw new Error(
-        "Resend rejected the email. In testing mode, use the Resend account's verified recipient address.",
+        providerMessage
+          ? `Brevo rejected the email: ${providerMessage}`
+          : `Brevo rejected the email (HTTP ${brevoResponse.status}). Check the API key, verified sender, and sending limits.`,
       );
     }
 
