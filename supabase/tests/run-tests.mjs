@@ -16,6 +16,7 @@ const USER = {
   customerA: id(5),
   customerB: id(6),
   legacy: id(90),
+  missingProfile: id(91),
 };
 const EVENT = { publicA: id(201), draftA: id(202), publicB: id(203), draftB: id(204) };
 const TICKET_TYPE = id(301);
@@ -389,6 +390,37 @@ async function testSchema() {
      WHERE table_schema = 'public' AND column_name = 'organizer_id'`,
   );
   ok("event records no longer depend on organizer IDs", organizerColumns === 0);
+
+  await q("ALTER TABLE auth.users DISABLE TRIGGER on_auth_user_created");
+  await q(
+    `INSERT INTO auth.users (id, email, raw_user_meta_data, created_at)
+     VALUES ($1, 'missing-profile@tickshow.test', '{"full_name":"Recovered Customer"}'::jsonb,
+             '2025-03-04T05:06:07Z')`,
+    [USER.missingProfile],
+  );
+  await q("ALTER TABLE auth.users ENABLE TRIGGER on_auth_user_created");
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    const rows = await q(
+      `SELECT id, full_name, email, created_at
+       FROM public.admin_list_customers()
+       WHERE id = $1`,
+      [USER.missingProfile],
+    );
+    ok(
+      "admin customer directory repairs and returns Auth users missing profiles",
+      rows.rows[0]?.id === USER.missingProfile &&
+        rows.rows[0]?.full_name === "Recovered Customer" &&
+        rows.rows[0]?.email === "missing-profile@tickshow.test" &&
+        new Date(rows.rows[0]?.created_at).toISOString() === "2025-03-04T05:06:07.000Z",
+      JSON.stringify(rows.rows[0]),
+    );
+  });
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await expectError(
+      "customers cannot call the admin customer directory",
+      "SELECT * FROM public.admin_list_customers()",
+    );
+  });
 
   await expectError(
     "negative ticket price rejected",

@@ -316,31 +316,9 @@ export async function deleteShowcaseEvent(id: string): Promise<void> {
 }
 
 export async function fetchCustomers(): Promise<CustomerView[]> {
-  const client = requireSupabase();
-  const [profiles, assignments, roles] = await Promise.all([
-    client.from("profiles").select("*").order("created_at", { ascending: false }),
-    client.from("user_roles").select("user_id, role_id"),
-    client.from("roles").select("id, name"),
-  ]);
-  if (profiles.error) throw new Error(profiles.error.message);
-  if (assignments.error) throw new Error(assignments.error.message);
-  if (roles.error) throw new Error(roles.error.message);
-  const roleNames = new Map((roles.data ?? []).map((row) => [row.id, row.name]));
-  const rolesByUser = new Map<string, string[]>();
-  for (const row of assignments.data ?? []) {
-    const name = roleNames.get(row.role_id);
-    if (!name) continue;
-    rolesByUser.set(row.user_id, [...(rolesByUser.get(row.user_id) ?? []), name]);
-  }
-  return (profiles.data ?? []).map((profile) => ({
-    id: profile.id,
-    full_name: profile.full_name,
-    email: profile.email,
-    phone: profile.phone,
-    status: profile.status,
-    roles: rolesByUser.get(profile.id) ?? [],
-    created_at: profile.created_at,
-  }));
+  const { data, error } = await requireSupabase().rpc("admin_list_customers");
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }
 
 export async function fetchOrders(): Promise<OrderView[]> {

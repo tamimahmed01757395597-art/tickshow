@@ -1091,6 +1091,18 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      admin_list_customers: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          full_name: string | null;
+          email: string | null;
+          phone: string | null;
+          status: Database["public"]["Enums"]["account_status"];
+          roles: string[];
+          created_at: string;
+        }[];
+      };
       assign_user_role: {
         Args: { p_user_id: string; p_role: Database["public"]["Enums"]["app_role"] };
         Returns: Database["public"]["Tables"]["user_roles"]["Row"] | null;
