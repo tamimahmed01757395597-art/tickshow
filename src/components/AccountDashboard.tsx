@@ -3,49 +3,12 @@ import type { Database } from "../types/database";
 import { formatTaka } from "../data/bookings";
 import { useAuth } from "../lib/auth";
 import { requireSupabase } from "../lib/supabase";
+import { downloadTicketPdf, sendTicketEmail } from "../lib/ticket";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 import "./AccountDashboard.css";
 
 type Booking = Database["public"]["Tables"]["storefront_bookings"]["Row"];
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return entities[character]!;
-  });
-}
-
-function downloadTicket(booking: Booking) {
-  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>TickShow demo ticket</title>
-  <style>body{font:16px/1.5 Arial,sans-serif;background:#f4f2ed;padding:32px;color:#171815}
-  main{max-width:560px;margin:auto;background:#fff;padding:32px;border:1px solid #ddd}
-  h1{font-size:28px}.notice{margin-top:24px;padding:12px;background:#fff4d4}
-  dt{color:#666;margin-top:12px}dd{margin:0;font-weight:bold}</style>
-  <main><p>TickShow · Demo booking</p><h1>${escapeHtml(booking.event_title)}</h1>
-  <dl><dt>Reference</dt><dd>${escapeHtml(booking.booking_reference)}</dd>
-  <dt>Booked for</dt><dd>${escapeHtml(booking.buyer_name)}</dd>
-  <dt>Tickets</dt><dd>${booking.quantity}</dd>
-  <dt>Total</dt><dd>${escapeHtml(formatTaka(booking.total_amount))}</dd>
-  <dt>Booked</dt><dd>${escapeHtml(new Date(booking.created_at).toLocaleString())}</dd>
-  <dt>Event date</dt><dd>${escapeHtml(booking.event_date_label ?? "To be announced")}</dd>
-  <dt>Time</dt><dd>${escapeHtml(booking.event_time_label ?? "To be announced")}</dd>
-  <dt>Venue</dt><dd>${escapeHtml(booking.event_venue ?? "To be announced")}</dd>
-  <dt>Location</dt><dd>${escapeHtml(booking.event_location ?? "To be announced")}</dd></dl>
-  <p class="notice">Demo only: no payment was taken. This file is not valid for event entry.</p></main></html>`;
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `tickshow-${booking.booking_reference.toLowerCase()}.html`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export default function AccountDashboard() {
   const { user, signOut, updateProfileName, deleteAccount } = useAuth();
@@ -61,6 +24,8 @@ export default function AccountDashboard() {
   const [showDeletePassword, setShowDeletePassword] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [downloadingReference, setDownloadingReference] = useState("");
+  const [emailingReference, setEmailingReference] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -120,6 +85,62 @@ export default function AccountDashboard() {
     }
   };
 
+  const handleTicketDownload = async (booking: Booking) => {
+    if (downloadingReference) return;
+    setDownloadingReference(booking.booking_reference);
+    setPageError("");
+    setNotice("");
+    try {
+      const didDownload = await downloadTicketPdf(booking.booking_reference);
+      setBookings((current) =>
+        current.map((item) =>
+          item.id === booking.id
+            ? ({
+                ...item,
+                ticket_downloaded_at:
+                  item.ticket_downloaded_at ?? new Date().toISOString(),
+              } as Booking)
+            : item,
+        ),
+      );
+      setNotice(
+        didDownload
+          ? "Your demo PDF ticket has been downloaded."
+          : "This ticket PDF has already been downloaded once.",
+      );
+    } catch (caught: unknown) {
+      setPageError(caught instanceof Error ? caught.message : "Could not download the ticket.");
+    } finally {
+      setDownloadingReference("");
+    }
+  };
+
+  const handleTicketEmail = async (booking: Booking) => {
+    if (emailingReference) return;
+    setEmailingReference(booking.booking_reference);
+    setPageError("");
+    setNotice("");
+    try {
+      await sendTicketEmail(booking.booking_reference, "resend");
+      setBookings((current) =>
+        current.map((item) =>
+          item.id === booking.id
+            ? ({ ...item, ticket_emailed_at: new Date().toISOString() } as Booking)
+            : item,
+        ),
+      );
+      setNotice("The ticket PDF was sent to your account email.");
+    } catch (caught: unknown) {
+      setPageError(
+        caught instanceof Error
+          ? `Could not send the ticket email: ${caught.message}`
+          : "Could not send the ticket email.",
+      );
+    } finally {
+      setEmailingReference("");
+    }
+  };
+
   const removeAccount = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setDeleting(true);
@@ -171,7 +192,7 @@ export default function AccountDashboard() {
               {bookings.map((booking) => (
                 <article className="account-booking" key={booking.id}>
                   <div>
-                    <span className="account-booking-status">Demo booking</span>
+                    <span className="account-booking-status">DEMO / TEST booking</span>
                     <h3>{booking.event_title}</h3>
                     <p>
                       {booking.booking_reference} · {booking.quantity} ticket(s) ·{" "}
@@ -184,13 +205,34 @@ export default function AccountDashboard() {
                     </p>
                     <strong>{formatTaka(booking.total_amount)}</strong>
                   </div>
-                  <button
-                    className="button button-dark"
-                    type="button"
-                    onClick={() => downloadTicket(booking)}
-                  >
-                    Download demo ticket <Icon name="download" size={16} />
-                  </button>
+                  <div className="account-booking-actions">
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      onClick={() => void handleTicketEmail(booking)}
+                      disabled={Boolean(emailingReference)}
+                    >
+                      {emailingReference === booking.booking_reference
+                        ? "Sending email…"
+                        : booking.ticket_emailed_at
+                          ? "Resend ticket email"
+                          : "Email ticket"}
+                      <Icon name="mail" size={16} />
+                    </button>
+                    <button
+                      className="button button-dark"
+                      type="button"
+                      onClick={() => void handleTicketDownload(booking)}
+                      disabled={Boolean(booking.ticket_downloaded_at) || Boolean(downloadingReference)}
+                    >
+                      {booking.ticket_downloaded_at
+                        ? "Ticket downloaded"
+                        : downloadingReference === booking.booking_reference
+                          ? "Preparing PDF…"
+                          : "Download PDF ticket"}
+                      {!booking.ticket_downloaded_at && <Icon name="download" size={16} />}
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

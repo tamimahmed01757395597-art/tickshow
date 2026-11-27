@@ -5,9 +5,11 @@ import {
   MAX_TICKETS_PER_ORDER,
   createBooking,
   formatTaka,
+  updateBookingTicketStatus,
 } from "../data/bookings";
 import { requireSupabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
+import { sendTicketEmail } from "../lib/ticket";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 
@@ -53,7 +55,6 @@ export default function CheckoutPage({
         })
         .single();
       if (error) throw new Error(error.message);
-
       const booking = createBooking({
         event,
         quantity,
@@ -63,6 +64,19 @@ export default function CheckoutPage({
         reference: result.booking_reference,
         amount: Number(result.total_amount),
       });
+      try {
+        const delivery = await sendTicketEmail(result.booking_reference);
+        updateBookingTicketStatus(result.booking_reference, {
+          ticketEmailStatus: delivery.sent || delivery.alreadySent ? "sent" : "failed",
+          ticketEmailError: null,
+        });
+      } catch (emailError) {
+        updateBookingTicketStatus(result.booking_reference, {
+          ticketEmailStatus: "failed",
+          ticketEmailError:
+            emailError instanceof Error ? emailError.message : "The email could not be sent.",
+        });
+      }
       window.location.hash = `#/order/${booking.reference}`;
     } catch (caught: unknown) {
       setSubmitError(
@@ -191,7 +205,8 @@ export default function CheckoutPage({
                 </section>
 
                 <p className="checkout-note">
-                  Demo booking only — no payment is taken and no entry ticket is issued.
+                  Demo booking only — no payment is taken. Any generated ticket is marked DEMO / TEST
+                  and is not valid for paid event entry.
                   Your booking details are saved to TickShow when you submit.
                 </p>
                 {submitError && <p className="checkout-error" role="alert">{submitError}</p>}

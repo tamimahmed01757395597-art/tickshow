@@ -41,15 +41,16 @@
 
 ## 1. Executive summary
 
-TickShow is a responsive event-discovery website for live events in **Manikganj, Dhaka**. Visitors browse upcoming events, filter by category, open full event detail pages, revisit a 3D "coverflow" lineup, and walk through a **demo** ticket checkout that issues a locally stored ticket stub with a booking reference.
+TickShow is a responsive event-discovery website for live events in **Manikganj, Dhaka**. Visitors browse upcoming events, filter by category, open full event detail pages, revisit a 3D "coverflow" lineup, and walk through a **demo** checkout that issues individually QR-coded DEMO / TEST PDF tickets without taking payment.
 
 The original application was a self-contained frontend preview. On **27 November 2026** it was extended with a real backend foundation:
 
-- **Supabase PostgreSQL** with 16 idempotent migrations and 27 application tables.
+- **Supabase PostgreSQL** with idempotent migrations, customer-owned demo bookings, and private per-ticket token hashes.
 - **Supabase Auth** for real sign-in/sign-up sessions.
 - **Invite-only administrator registration** using single-use hashed invitation tokens.
 - **Role-based admin panel** with 11 live sections for operational data and role management.
 - **Admin-managed storefront showcase** for upcoming, ongoing and past event cards, plus carousel membership and ordering.
+- **Supabase Edge Function + Resend** for authenticated ticket email delivery, private PDF storage and one-time account downloads.
 - **Row Level Security**, moderation triggers, immutable financial fields, audit logging and storage policies.
 - **Vercel deployment** using public `VITE_` environment variables injected at build time.
 
@@ -265,16 +266,20 @@ Vercel (static Vite build)
        ├── AuthProvider ────────────── Supabase Auth
        ├── useStorefrontEvents() ──── public.storefront_events (anon SELECT)
        ├── AdminPanel ─────────────── RLS-protected reads/writes + RPCs
-       └── localStorage ───────────── demo bookings only
+       └── localStorage ───────────── order-page booking snapshot
 
 Supabase project
   ├── PostgreSQL
-  │    ├── 27 application tables, RLS enabled on all
+  │    ├── storefront bookings + per-ticket SHA-256 token hashes
+  │    ├── RLS enabled on all application tables
   │    ├── helper functions (SECURITY DEFINER, pinned search_path)
   │    ├── moderation, audit and immutability triggers
   │    └── admin/auth RPCs
   ├── Auth (email/password, sessions)
   └── Storage (5 buckets with path-scoped policies)
+       └── private multi-page demo PDFs
+Supabase Edge Function
+  └── send-ticket-email → jsPDF + QR code → Resend
 ```
 
 ### 6.3 Storefront showcase data flow
@@ -329,13 +334,17 @@ Amounts, ownership and approval timestamps remain immutable to client updates; t
 
 ```text
 CheckoutPage form submit
-  → createBooking()
-  → reference "TS-" + 6 unambiguous characters
+  → create_storefront_booking RPC (database price + customer ownership)
+  → #/order/<reference> → DEMO / TEST order and delivery status
+  → send-ticket-email Edge Function
+      → creates one unique random token and hash per ticket
+      → creates a multipage A6 PDF with a unique QR on each page
+      → stores the private PDF and emails it to the booking's database email
+  → account download → one-time claim + expiring private Storage URL
   → localStorage["tickshow.bookings"] (max 25)
-  → #/order/<reference> → OrderPage ticket stub
 ```
 
-No database row is written by this flow; it is intentionally a preview.
+No payment is taken and no paid entry ticket is issued. Raw QR tokens are never returned by database booking or ticket queries; only the hash is stored. The verification route checks the ticket ID and raw token against the stored hash and rejects revoked or already checked-in tickets.
 
 ---
 
@@ -503,7 +512,7 @@ type TickShowEvent = {
 
 ### 9.2 Supabase schema groups
 
-27 application tables, all with RLS enabled:
+Application tables, all with RLS enabled:
 
 | Group | Tables |
 |---|---|
@@ -514,7 +523,7 @@ type TickShowEvent = {
 | Orders / payments | `orders`, `order_items`, `payments`, `payment_webhook_events` |
 | Verification | `tickets`, `ticket_checkins` |
 | Finance | `refunds`, `organizer_commissions`, `organizer_payouts` |
-| Showcase | `storefront_events` |
+| Showcase / demo tickets | `storefront_events`, `storefront_bookings`, `storefront_tickets` |
 | Engagement / admin | `notifications`, `reviews`, `platform_settings`, `audit_logs` |
 
 ### 9.3 Migration catalogue
@@ -537,6 +546,12 @@ type TickShowEvent = {
 | `0014_admin_management_writes.sql` | Controlled admin order/payout updates and audit logging |
 | `0015_storefront_event_showcase.sql` | Showcase table, policies, trigger, indexes and 14 seeded events |
 | `0016_grants_and_privileges.sql` | Explicit table/function `GRANT`s for `anon`, `authenticated` and `service_role` |
+| `0017_storefront_bookings.sql` | Persist demo storefront bookings |
+| `0018_storefront_booking_availability.sql` | Create bookings only for events available for sale |
+| `0019_remove_seeded_showcase_data.sql` | Remove bundled showcase samples |
+| `0020_customer_accounts_and_bookings.sql` | Associate bookings with signed-in customers and snapshot event details |
+| `0021_ticket_delivery_and_one_time_download.sql` | Initial demo ticket delivery fields and RPCs |
+| `0022_secure_storefront_tickets.sql` | Per-ticket hashed QR tokens, private access, resend/download claims and verification |
 
 ### 9.4 Important invariants
 
@@ -545,6 +560,7 @@ type TickShowEvent = {
 - `ticket_inventory.available_quantity` is generated as `total - reserved - sold`.
 - Payment records contain no card numbers or CVCs; Stripe IDs are unique for idempotency.
 - Tickets store only a SHA-256-shaped QR token hash.
+- Storefront demo ticket token hashes are private to the Edge Function/service role; public verification returns status and ticket details only.
 - Admin updates cannot change order/payout amounts or ownership.
 - Payments, refunds, webhook events, audit logs and role writes are not client-writable.
 - Showcase edits cannot change inventory, orders or payments; they only change display data.

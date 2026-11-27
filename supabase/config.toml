@@ -19,7 +19,7 @@ enabled = false
 enabled = true
 port = 54323
 
-[inbucket]
+[local_smtp]
 enabled = true
 port = 54324
 
@@ -48,4 +48,7 @@ enable_confirmations = true
 enabled = false
 
 [edge_runtime]
-enabled = false
+enabled = true
+
+[functions.send-ticket-email]
+verify_jwt = true

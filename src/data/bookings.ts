@@ -10,6 +10,9 @@ export type TicketBooking = {
   email: string;
   phone: string;
   createdAt: string;
+  ticketEmailStatus?: "pending" | "sent" | "failed";
+  ticketEmailError?: string | null;
+  ticketDownloaded?: boolean;
 };
 
 export const MAX_TICKETS_PER_ORDER = 8;
@@ -75,10 +78,23 @@ export function createBooking({
     email: email.trim(),
     phone: phone.trim(),
     createdAt: new Date().toISOString(),
+    ticketEmailStatus: "pending",
+    ticketEmailError: null,
   };
 
   persistBookings([booking, ...readBookings()]);
   return booking;
+}
+
+export function updateBookingTicketStatus(
+  reference: string,
+  update: Pick<TicketBooking, "ticketEmailStatus" | "ticketEmailError" | "ticketDownloaded">,
+) {
+  const wanted = reference.trim().toUpperCase();
+  const bookings = readBookings().map((booking) =>
+    booking.reference.toUpperCase() === wanted ? { ...booking, ...update } : booking,
+  );
+  persistBookings(bookings);
 }
 
 export function findBooking(reference: string): TicketBooking | undefined {

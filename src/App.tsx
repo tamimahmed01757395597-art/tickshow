@@ -617,6 +617,110 @@ function AuthPage({ mode }: { mode: AuthMode }) {
   );
 }
 
+function TicketVerificationPage({
+  reference,
+  ticketId,
+  token,
+}: {
+  reference: string | null;
+  ticketId: string | null;
+  token: string;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [valid, setValid] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
+  const [details, setDetails] = useState<{
+    event_title: string;
+    event_date: string | null;
+    event_venue: string | null;
+    event_location: string | null;
+    booking_reference: string;
+    ticket_number: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const verify = async () => {
+      try {
+        const response = ticketId
+          ? await requireSupabase().rpc("verify_storefront_ticket_by_id", {
+              p_ticket_id: ticketId,
+              p_ticket_token: token,
+            })
+          : await requireSupabase().rpc("verify_storefront_ticket", {
+              p_booking_reference: reference ?? "",
+              p_ticket_token: token,
+            });
+        if (!active) return;
+        if (response.error) throw new Error(response.error.message);
+        const result = response.data?.[0];
+        setValid(Boolean(result?.valid));
+        if (result?.valid) {
+          setDetails({
+            event_title: result.event_title ?? "TickShow event",
+            event_date: result.event_date,
+            event_venue: result.event_venue,
+            event_location: result.event_location,
+            booking_reference: "booking_reference" in result
+              ? result.booking_reference ?? reference ?? ""
+              : reference ?? "",
+            ticket_number: "ticket_number" in result ? result.ticket_number ?? 1 : 1,
+          });
+        } else {
+          setVerificationError(
+            "This ticket is invalid, revoked, or has already been checked in.",
+          );
+        }
+      } catch {
+        if (active) setVerificationError("Could not verify this demo ticket.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void verify();
+    return () => {
+      active = false;
+    };
+  }, [reference, ticketId, token]);
+
+  return (
+    <div className="auth-page">
+      <div className="auth-topbar">
+        <Brand />
+        <a className="auth-home-link" href="#/events">Explore events</a>
+      </div>
+      <main className="auth-main auth-main-centered">
+        <section className="auth-panel" aria-labelledby="ticket-verification-title">
+          <div className="auth-card">
+            <p className="auth-card-kicker">Ticket verification</p>
+            <h1 id="ticket-verification-title">
+              {loading ? "Checking ticket…" : valid ? "Valid demo ticket" : "Ticket not valid"}
+            </h1>
+            {loading ? (
+              <p className="auth-card-intro">Verifying the unique QR code…</p>
+            ) : valid && details ? (
+              <>
+                <p className="auth-card-intro">{details.event_title}</p>
+                <p>Ticket {details.ticket_number}</p>
+                <p>{details.event_date ?? "Date to be announced"}</p>
+                <p>
+                  {[details.event_venue, details.event_location].filter(Boolean).join(", ") ||
+                    "Venue to be announced"}
+                </p>
+                <p><strong>Reference:</strong> {details.booking_reference}</p>
+              </>
+            ) : (
+              <p className="auth-error" role="alert">
+                {verificationError || "This QR code is invalid or does not match a TickShow booking."}
+              </p>
+            )}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
 function ForgotPasswordPage() {
   const { configured, requestPasswordReset } = useAuth();
   const [email, setEmail] = useState("");
@@ -874,6 +978,7 @@ type Route =
   | { name: "event"; id: string }
   | { name: "checkout"; id: string }
   | { name: "order"; reference: string }
+  | { name: "ticket"; reference: string | null; ticketId: string | null; token: string }
   | { name: "page"; page: FooterPageKey };
 
 const FOOTER_ROUTES: FooterPageKey[] = [
@@ -895,7 +1000,7 @@ function getRoute(): Route {
   const hash = window.location.hash;
   if (!hash.startsWith("#/")) return { name: "home" };
   const value = hash.slice(2).toLowerCase();
-  const path = value.split("?")[0];
+  const [path, queryString] = value.split("?");
   if (path === "admin") return { name: "admin" };
   if (path === "login" || path === "signup") return { name: "auth", mode: path };
   if (path === "staff-access") return { name: "auth", mode: "staff-login" };
@@ -911,6 +1016,17 @@ function getRoute(): Route {
   }
   if (path.startsWith("order/")) {
     return { name: "order", reference: decodeURIComponent(path.slice("order/".length)) };
+  }
+  if (path.startsWith("ticket/")) {
+    const query = new URLSearchParams(queryString ?? "");
+    const ticketPath = path.slice("ticket/".length);
+    const legacyReference = ticketPath.startsWith("ts-");
+    return {
+      name: "ticket",
+      reference: legacyReference ? decodeURIComponent(ticketPath).toUpperCase() : null,
+      ticketId: legacyReference ? null : decodeURIComponent(ticketPath),
+      token: query.get("v") ?? "",
+    };
   }
   if (FOOTER_ROUTES.includes(path as FooterPageKey)) {
     return { name: "page", page: path as FooterPageKey };
@@ -1015,6 +1131,15 @@ function App() {
   }
   if (route.name === "admin") {
     return <AdminPanel />;
+  }
+  if (route.name === "ticket") {
+    return (
+      <TicketVerificationPage
+        reference={route.reference}
+        ticketId={route.ticketId}
+        token={route.token}
+      />
+    );
   }
 
   const openEvent = (event: TickShowEvent) => {

@@ -1122,6 +1122,12 @@ export type Database = {
           buyer_email: string;
           buyer_phone: string;
           created_at: string;
+          is_demo: boolean;
+          ticket_emailed_at: string | null;
+          ticket_downloaded_at: string | null;
+          ticket_email_status: "pending" | "sending" | "sent" | "failed";
+          ticket_assets_status: "pending" | "generating" | "ready";
+          ticket_assets_started_at: string | null;
         },
         {
           id?: string;
@@ -1142,6 +1148,12 @@ export type Database = {
           buyer_email: string;
           buyer_phone: string;
           created_at?: string;
+          is_demo?: boolean;
+          ticket_emailed_at?: string | null;
+          ticket_downloaded_at?: string | null;
+          ticket_email_status?: "pending" | "sending" | "sent" | "failed";
+          ticket_assets_status?: "pending" | "generating" | "ready";
+          ticket_assets_started_at?: string | null;
         },
         {
           id?: string;
@@ -1161,6 +1173,41 @@ export type Database = {
           buyer_name?: string;
           buyer_email?: string;
           buyer_phone?: string;
+          created_at?: string;
+          is_demo?: boolean;
+          ticket_emailed_at?: string | null;
+          ticket_downloaded_at?: string | null;
+          ticket_email_status?: "pending" | "sending" | "sent" | "failed";
+          ticket_assets_status?: "pending" | "generating" | "ready";
+          ticket_assets_started_at?: string | null;
+        }
+      >;
+      storefront_tickets: Table<
+        {
+          id: string;
+          booking_id: string;
+          ticket_number: number;
+          token_hash: string;
+          revoked_at: string | null;
+          checked_in_at: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          booking_id: string;
+          ticket_number: number;
+          token_hash: string;
+          revoked_at?: string | null;
+          checked_in_at?: string | null;
+          created_at?: string;
+        },
+        {
+          id?: string;
+          booking_id?: string;
+          ticket_number?: number;
+          token_hash?: string;
+          revoked_at?: string | null;
+          checked_in_at?: string | null;
           created_at?: string;
         }
       >;
@@ -1240,6 +1287,51 @@ export type Database = {
           p_buyer_phone: string;
         };
         Returns: { booking_reference: string; total_amount: number }[];
+      };
+      claim_storefront_ticket_email: {
+        Args: { p_booking_reference: string; p_resend?: boolean };
+        Returns: boolean;
+      };
+      finish_storefront_ticket_email: {
+        Args: { p_booking_reference: string; p_sent: boolean };
+        Returns: undefined;
+      };
+      claim_storefront_ticket_assets: {
+        Args: { p_booking_reference: string; p_force?: boolean };
+        Returns: boolean;
+      };
+      finish_storefront_ticket_assets: {
+        Args: { p_booking_reference: string; p_ready: boolean };
+        Returns: undefined;
+      };
+      claim_storefront_ticket_download: {
+        Args: { p_booking_reference: string };
+        Returns: { claimed: boolean; already_downloaded_at: string | null }[];
+      };
+      verify_storefront_ticket_by_id: {
+        Args: { p_ticket_id: string; p_ticket_token: string };
+        Returns: {
+          valid: boolean;
+          event_title: string | null;
+          event_date: string | null;
+          event_time: string | null;
+          event_venue: string | null;
+          event_location: string | null;
+          booking_reference: string | null;
+          ticket_number: number | null;
+          already_checked_in: boolean;
+        }[];
+      };
+      verify_storefront_ticket: {
+        Args: { p_booking_reference: string; p_ticket_token: string };
+        Returns: {
+          valid: boolean;
+          event_title: string | null;
+          event_date: string | null;
+          event_venue: string | null;
+          event_location: string | null;
+          quantity: number | null;
+        }[];
       };
       delete_own_account: { Args: Record<string, never>; Returns: undefined };
     };

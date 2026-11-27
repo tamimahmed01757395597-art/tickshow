@@ -156,6 +156,13 @@
   flex: none;
 }
 
+.account-booking-actions {
+  display: grid;
+  justify-items: stretch;
+  gap: 8px;
+  flex: none;
+}
+
 .account-empty {
   padding: 16px 0 0;
   color: var(--muted);

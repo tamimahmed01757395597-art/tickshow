@@ -1,6 +1,6 @@
 # TickShow — database foundation, admin authentication and event showcase
 
-This directory contains the Supabase/PostgreSQL foundation, invite-only administrator access, the admin-managed storefront event showcase, and account-owned demo bookings. Demo bookings do not create paid orders or issue entry tickets.
+This directory contains the Supabase/PostgreSQL foundation, invite-only administrator access, the admin-managed storefront event showcase, and account-owned demo bookings. Demo bookings can issue DEMO / TEST PDF tickets, but never create paid orders or paid entry tickets.
 
 ## 1. Files created
 
@@ -45,6 +45,10 @@ supabase/migrations/
   0018_storefront_booking_availability.sql
   0019_remove_seeded_showcase_data.sql
   0020_customer_accounts_and_bookings.sql
+  0021_ticket_delivery_and_one_time_download.sql
+  0022_secure_storefront_tickets.sql
+supabase/functions/send-ticket-email/index.ts
+src/lib/ticket-pdf.ts                  (shared multi-ticket PDF renderer)
 supabase/tests/run-tests.mjs
 ```
 
@@ -61,12 +65,14 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 | Orders / payments | `orders`, `order_items`, `payments`, `payment_webhook_events` |
 | Verification | `tickets`, `ticket_checkins` |
 | Finance | `refunds`, `organizer_commissions`, `organizer_payouts` |
-| Storefront showcase | `storefront_events`, `storefront_bookings` |
+| Storefront showcase | `storefront_events`, `storefront_bookings`, `storefront_tickets` |
 | Additional | `notifications`, `reviews`, `platform_settings`, `audit_logs` |
 
 `event_staff` provides explicit per-event staff assignments. `event_lineup_items` mirrors the existing frontend lineup structure. `storefront_events` is a separate presentation layer for the public grid, event detail pages and coverflow carousel; the normalized `events` table remains the source of truth for inventory, orders and finance.
 
 The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. These showcase records are separate from normalized `orders` because showcase events do not have ticket inventory configured.
+
+Ticket issuance is handled by the authenticated `send-ticket-email` Edge Function. It creates one cryptographically random token per ticket, stores only SHA-256 token hashes in the private `storefront_tickets` table, builds an A6 PDF with a unique QR code on each page, and stores the PDF in the private `ticket-files` bucket. Resend uses the booking's database email, never a browser-provided recipient. Account PDF downloads use a single-use database claim and a short-lived signed URL. All generated tickets and email copy are marked DEMO / TEST and are not valid for paid entry.
 
 ### Important invariants
 
@@ -79,7 +85,7 @@ The demo checkout writes to `storefront_bookings` through `create_storefront_boo
 - Admin panel updates cannot change order/payout amounts or ownership; database triggers enforce immutability.
 - Payment records and refunds remain read-only to clients; only trusted server/webhook code writes them.
 - Storefront showcase edits cannot change event inventory, ticket types, orders or payments; they only change display data.
-- Demo bookings are not payments or issued tickets; only authenticated customers can create bookings for currently visible, upcoming or ongoing events.
+- Demo bookings are not payments or paid entry tickets; authenticated customers can create bookings for currently visible, upcoming or ongoing events, then receive clearly marked DEMO / TEST PDFs.
 - Account deletion removes the auth account, profile, demo bookings, and other profile-cascaded data. Historical normalized orders are retained for financial integrity with customer contact details anonymized.
 
 ## 3. Customer accounts and administrator authentication
@@ -88,7 +94,7 @@ The demo checkout writes to `storefront_bookings` through `create_storefront_boo
 
 - Customer login and signup are available at `#/login` and `#/signup`. The customer pages contain no staff login or invitation controls.
 - Checkout requires a signed-in account; bookings are tied to the authenticated user and shown in `#/account`.
-- The account dashboard supports booking history, a clearly marked demo-ticket HTML download, name updates, sign-out, and password-confirmed account deletion.
+- The account dashboard supports booking history, one-time PDF ticket downloads, email delivery status and explicit email retry, name updates, sign-out, and password-confirmed account deletion.
 - `#/forgot-password` sends a Supabase recovery email. `/auth/callback` handles confirmation and recovery links and provides the password update page.
 - Account deletion is immediate after password reauthentication; deletion-confirmation email delivery is not implemented. Financial order records are retained but anonymized.
 - Configure Supabase Auth **Site URL** and add the production `https://YOUR_DOMAIN/auth/callback` URL to **Redirect URLs**. Also allow the local callback URL when developing. Vercel rewrites `/auth/callback` to the SPA.
@@ -126,10 +132,10 @@ If email confirmation is enabled, the account is created but the user must confi
 
 ## 4. Row Level Security
 
-RLS is enabled on all 28 application tables. The default is deny.
+RLS is enabled on all 29 application tables. The default is deny.
 
 - **Anonymous**: published + approved events, approved organizers/reviews, active categories, public settings and visible storefront showcase records. Cannot create or read bookings.
-- **Customers**: their own profile, orders, tickets, payments, notifications, reviews and storefront bookings.
+- **Customers**: their own profile, orders, tickets, payments, notifications, reviews and storefront bookings. Per-ticket token hashes are not granted to client roles.
 - **Organizers**: their own records only, and only with the admin-assigned `organizer` role. Cannot self-approve.
 - **Staff**: only events with an active `event_staff` assignment.
 - **Admins**: broad controlled reads/writes including full storefront showcase management, but no self-escalation and immutable financial amounts.
@@ -146,11 +152,11 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 | `event-gallery` | Yes | `{event_id}/{filename}` |
 | `organizer-logos` | Yes | `{organizer_id}/{filename}` |
 | `user-avatars` | Yes | `{user_id}/{filename}` |
-| `ticket-files` | No | `{order_id}/{ticket_id}/{filename}` |
+| `ticket-files` | No | `storefront-bookings/{booking_id}/tickets.pdf` for test PDFs; existing order paths remain supported |
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0020 in order.
+Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0022 in order.
 
 ## 6. Environment variables
 
@@ -168,7 +174,7 @@ Real credentials are not committed. `.gitignore` ignores `.env` and `.env.*` exc
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0020` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0022` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -179,6 +185,8 @@ npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_REF
 npm run db:migrate
 npm run db:types:remote
+supabase secrets set RESEND_API_KEY=re_... "RESEND_FROM_EMAIL=TickShow <onboarding@resend.dev>" SITE_URL=https://your-site.vercel.app
+supabase functions deploy send-ticket-email
 npm run dev
 ```
 
@@ -210,9 +218,9 @@ Migrations are idempotent. Migration 0019 intentionally deletes the known seeded
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0020 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0022 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
-- 28 tables created with RLS on all of them.
+- All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
 - Inventory counters, one-time check-in and immutability guards.
 - Public/private visibility, tenant isolation and role separation.
@@ -222,10 +230,11 @@ Migrations are idempotent. Migration 0019 intentionally deletes the known seeded
 - Explicit client table/function privileges, so RLS decisions are not blocked by missing `GRANT`s.
 - Storefront showcase visibility, non-admin write blocking, and admin grouping/carousel updates.
 - Public demo booking persistence, database-priced totals, validation and private buyer details.
+- Per-ticket token hashing, duplicate email suppression, single-use downloads, unique QR verification, and checked-in ticket rejection.
 - Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.
 
-Also passed: `npx tsc --noEmit` and `npm run build`.
+Latest local validation: 98 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Live Supabase and Resend delivery have not been tested.
 
 ## 10. Not included
 
-Stripe checkout, webhook processing, real entry-ticket issuance, QR generation and per-event staff check-in UI remain out of scope. The public event grid, detail pages and carousel read the admin-managed showcase; there are no bundled sample-event fallbacks. The demo ticket download is not valid for event entry.
+Stripe checkout, webhook processing, real paid-ticket issuance and per-event staff check-in UI remain out of scope. The public event grid, detail pages and carousel read the admin-managed showcase; there are no bundled sample-event fallbacks. DEMO / TEST PDFs are not valid for paid event entry.

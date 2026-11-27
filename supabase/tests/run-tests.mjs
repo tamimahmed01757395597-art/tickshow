@@ -96,6 +96,29 @@ async function applyShims() {
     CREATE ROLE service_role NOLOGIN BYPASSRLS;
 
     CREATE SCHEMA auth;
+    CREATE SCHEMA extensions;
+    GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
+    CREATE FUNCTION extensions.gen_random_bytes(p_bytes integer)
+    RETURNS bytea
+    LANGUAGE sql
+    VOLATILE
+    AS $$
+      SELECT decode(
+        substr(repeat(md5(gen_random_uuid()::text), ceil(p_bytes / 16.0)::integer), 1, p_bytes * 2),
+        'hex'
+      );
+    $$;
+    CREATE FUNCTION extensions.digest(p_data bytea, p_algorithm text)
+    RETURNS bytea
+    LANGUAGE sql
+    IMMUTABLE
+    AS $$
+      SELECT decode(
+        md5(encode(p_data, 'hex')) || md5(p_algorithm || encode(p_data, 'hex')),
+        'hex'
+      );
+    $$;
+
     CREATE TABLE auth.users (
       id uuid PRIMARY KEY,
       email text,
@@ -156,7 +179,13 @@ async function applyMigrations() {
     .filter((file) => file.endsWith(".sql"))
     .sort();
   for (const file of files) {
-    const sql = await readFile(path.join(migrationsDir, file), "utf8");
+    let sql = await readFile(path.join(migrationsDir, file), "utf8");
+    if (file === "0021_ticket_delivery_and_one_time_download.sql") {
+      sql = sql.replace(
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;",
+        "-- pgcrypto is represented by deterministic test shims in PGlite.",
+      );
+    }
     await db.exec(sql);
     console.log(`  APPLIED ${file}`);
   }
@@ -344,13 +373,13 @@ async function testSchema() {
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
   );
-  ok("all application tables created", tableCount === 28, `found ${tableCount}`);
+  ok("all application tables created", tableCount === 29, `found ${tableCount}`);
 
   const rlsCount = await count(
     `SELECT count(*) FROM pg_tables
      WHERE schemaname = 'public' AND rowsecurity = true`,
   );
-  ok("RLS enabled on all application tables", rlsCount === 28, `found ${rlsCount}`);
+  ok("RLS enabled on all application tables", rlsCount === 29, `found ${rlsCount}`);
 
   await expectError(
     "negative ticket price rejected",
@@ -813,6 +842,10 @@ async function testStorefrontShowcase() {
 
 async function testStorefrontBookings() {
   console.log("\n[6] Authenticated storefront booking persistence");
+  let primaryBookingReference = "";
+  let firstTicketId = "";
+  const firstTicketToken = "a".repeat(64);
+  const secondTicketToken = "b".repeat(64);
 
   await asService(async () => {
     await q(
@@ -849,9 +882,11 @@ async function testStorefrontBookings() {
     ok(
       "signed-in checkout stores a booking at the database event price",
       result.rows[0]?.booking_reference?.startsWith("TS-") &&
-        Number(result.rows[0]?.total_amount) === 2400,
+        Number(result.rows[0]?.total_amount) === 2400 &&
+        !Object.hasOwn(result.rows[0] ?? {}, "ticket_token"),
       JSON.stringify(result.rows[0]),
     );
+    primaryBookingReference = result.rows[0]?.booking_reference;
     const snapshot = await q(
       `SELECT event_date_label, event_time_label, event_venue, event_location
        FROM public.storefront_bookings WHERE booking_reference = $1`,
@@ -907,11 +942,157 @@ async function testStorefrontBookings() {
     );
     const visible = await count("SELECT count(*) FROM public.storefront_bookings");
     ok("customers can read only their own bookings", visible === 2);
+
+    const emailClaim = await q(
+      "SELECT public.claim_storefront_ticket_email($1, false) AS claimed",
+      [primaryBookingReference],
+    );
+    const duplicateEmailClaim = await q(
+      "SELECT public.claim_storefront_ticket_email($1, false) AS claimed",
+      [primaryBookingReference],
+    );
+    ok(
+      "ticket email is claimed once and concurrent duplicate sends are blocked",
+      emailClaim.rows[0]?.claimed === true && duplicateEmailClaim.rows[0]?.claimed === false,
+    );
+    await q(
+      "SELECT public.finish_storefront_ticket_email($1, true)",
+      [primaryBookingReference],
+    );
+    const duplicateSentEmail = await q(
+      "SELECT public.claim_storefront_ticket_email($1, false) AS claimed",
+      [primaryBookingReference],
+    );
+    const explicitResend = await q(
+      "SELECT public.claim_storefront_ticket_email($1, true) AS claimed",
+      [primaryBookingReference],
+    );
+    ok(
+      "sent ticket emails are not repeated unless an explicit resend is requested",
+      duplicateSentEmail.rows[0]?.claimed === false && explicitResend.rows[0]?.claimed === true,
+    );
+    await q(
+      "SELECT public.finish_storefront_ticket_email($1, false)",
+      [primaryBookingReference],
+    );
+
+    const assetClaim = await q(
+      "SELECT public.claim_storefront_ticket_assets($1, false) AS claimed",
+      [primaryBookingReference],
+    );
+    const duplicateAssetClaim = await q(
+      "SELECT public.claim_storefront_ticket_assets($1, false) AS claimed",
+      [primaryBookingReference],
+    );
+    ok(
+      "ticket PDF generation uses an atomic booking claim",
+      assetClaim.rows[0]?.claimed === true && duplicateAssetClaim.rows[0]?.claimed === false,
+    );
+    await q(
+      "SELECT public.finish_storefront_ticket_assets($1, true)",
+      [primaryBookingReference],
+    );
+  });
+
+  await asService(async () => {
+    const booking = await q(
+      "SELECT id FROM public.storefront_bookings WHERE booking_reference = $1",
+      [primaryBookingReference],
+    );
+    await q(
+      `INSERT INTO public.storefront_tickets (booking_id, ticket_number, token_hash)
+       VALUES
+         ($1, 1, encode(extensions.digest(convert_to($2, 'UTF8'), 'sha256'), 'hex')),
+         ($1, 2, encode(extensions.digest(convert_to($3, 'UTF8'), 'sha256'), 'hex'))`,
+      [booking.rows[0].id, firstTicketToken, secondTicketToken],
+    );
+    const tickets = await q(
+      `SELECT id, ticket_number FROM public.storefront_tickets
+       WHERE booking_id = $1 ORDER BY ticket_number`,
+      [booking.rows[0].id],
+    );
+    firstTicketId = tickets.rows[0]?.id;
+    ok(
+      "a multi-ticket booking receives one private record per ticket",
+      tickets.rows.length === 2 &&
+        tickets.rows[0]?.ticket_number !== tickets.rows[1]?.ticket_number,
+      JSON.stringify(tickets.rows),
+    );
+    const rawTokenColumn = await count(
+      `SELECT count(*) FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name IN ('storefront_bookings', 'storefront_tickets')
+         AND column_name = 'ticket_token'`,
+    );
+    ok("raw ticket tokens are not stored in readable columns", rawTokenColumn === 0);
+  });
+
+  await asAnon(async () => {
+    await expectError(
+      "anonymous users cannot read private storefront ticket records",
+      "SELECT * FROM public.storefront_tickets",
+    );
+    const valid = await q(
+      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
+      [firstTicketId, firstTicketToken],
+    );
+    const invalid = await q(
+      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
+      [firstTicketId, "c".repeat(64)],
+    );
+    ok(
+      "verification checks token hashes and returns an explicit invalid result",
+      valid.rows[0]?.valid === true &&
+        valid.rows[0]?.ticket_number === 1 &&
+        invalid.rows[0]?.valid === false,
+    );
+    ok(
+      "ticket verification response never includes stored token hashes",
+      !Object.hasOwn(valid.rows[0] ?? {}, "token_hash"),
+    );
   });
 
   await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
     const visible = await count("SELECT count(*) FROM public.storefront_bookings");
     ok("customers cannot read other buyers' booking details", visible === 0);
+    await expectError(
+      "customers cannot query private ticket token hashes",
+      "SELECT * FROM public.storefront_tickets",
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    const firstDownload = await q(
+      "SELECT * FROM public.claim_storefront_ticket_download($1)",
+      [primaryBookingReference],
+    );
+    const secondDownload = await q(
+      "SELECT * FROM public.claim_storefront_ticket_download($1)",
+      [primaryBookingReference],
+    );
+    ok(
+      "ticket PDF download can be claimed only once",
+      firstDownload.rows[0]?.claimed === true &&
+        secondDownload.rows[0]?.claimed === false &&
+        !Object.hasOwn(firstDownload.rows[0] ?? {}, "ticket_token"),
+    );
+  });
+
+  await asService(async () => {
+    await q(
+      "UPDATE public.storefront_tickets SET checked_in_at = now() WHERE id = $1",
+      [firstTicketId],
+    );
+  });
+  await asAnon(async () => {
+    const used = await q(
+      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
+      [firstTicketId, firstTicketToken],
+    );
+    ok(
+      "checked-in tickets cannot be accepted again",
+      used.rows[0]?.valid === false && used.rows[0]?.already_checked_in === true,
+    );
   });
 
   await asAuth(USER.admin, "admin@tickshow.test", async () => {

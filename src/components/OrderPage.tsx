@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { TickShowEvent } from "../data/events";
+import { updateBookingTicketStatus } from "../data/bookings";
 import type { TicketBooking } from "../data/bookings";
 import { formatTaka } from "../data/bookings";
+import { downloadTicketPdf, sendTicketEmail } from "../lib/ticket";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 
@@ -20,6 +22,54 @@ export default function OrderPage({
   }, [booking.reference]);
 
   const ticketLabel = booking.quantity === 1 ? "ticket" : "tickets";
+  const [emailStatus, setEmailStatus] = useState(booking.ticketEmailStatus ?? "pending");
+  const [emailError, setEmailError] = useState(booking.ticketEmailError ?? "");
+  const [downloaded, setDownloaded] = useState(Boolean(booking.ticketDownloaded));
+  const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  const resendEmail = async () => {
+    if (sending) return;
+    setSending(true);
+    setActionError("");
+    try {
+      await sendTicketEmail(booking.reference, "resend");
+      setEmailStatus("sent");
+      setEmailError("");
+      updateBookingTicketStatus(booking.reference, {
+        ticketEmailStatus: "sent",
+        ticketEmailError: null,
+      });
+    } catch (caught: unknown) {
+      const message = caught instanceof Error ? caught.message : "The email could not be sent.";
+      setEmailStatus("failed");
+      setEmailError(message);
+      setActionError(message);
+      updateBookingTicketStatus(booking.reference, {
+        ticketEmailStatus: "failed",
+        ticketEmailError: message,
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const downloadPdf = async () => {
+    if (downloading || downloaded) return;
+    setDownloading(true);
+    setActionError("");
+    try {
+      const didDownload = await downloadTicketPdf(booking.reference);
+      setDownloaded(true);
+      updateBookingTicketStatus(booking.reference, { ticketDownloaded: true });
+      if (!didDownload) setActionError("This ticket PDF has already been downloaded once.");
+    } catch (caught: unknown) {
+      setActionError(caught instanceof Error ? caught.message : "The ticket PDF could not be downloaded.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="footer-page order-page">
@@ -33,7 +83,7 @@ export default function OrderPage({
       <main className="footer-page-main order-main">
         <div className="page-wrap">
           <header className="order-header">
-            <p className="section-kicker">Demo booking saved</p>
+            <p className="section-kicker">DEMO / TEST booking saved</p>
             <h1>
               You're <span>on the list</span>
             </h1>
@@ -79,14 +129,43 @@ export default function OrderPage({
             <div className="ticket-stub-ref">
               <p>Booking reference</p>
               <strong>{booking.reference}</strong>
-              <span>Demo reference — not valid for entry</span>
+              <span>DEMO / TEST — not valid for paid event entry</span>
             </div>
           </article>
 
+          <section className="order-ticket-delivery" aria-label="Ticket delivery">
+            <p role="status">
+              {emailStatus === "sent"
+                ? "PDF ticket emailed successfully."
+                : emailStatus === "failed"
+                  ? `Ticket email failed${emailError ? `: ${emailError}` : "."}`
+                  : "Ticket email delivery is pending."}
+            </p>
+            {actionError && <p className="checkout-error" role="alert">{actionError}</p>}
+            <div className="order-actions">
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => void downloadPdf()}
+                disabled={downloading || downloaded}
+              >
+                {downloaded ? "Ticket already downloaded" : downloading ? "Preparing PDF…" : "Download demo PDF"}
+                {!downloaded && <Icon name="download" size={18} />}
+              </button>
+              <button
+                className="button button-dark"
+                type="button"
+                onClick={() => void resendEmail()}
+                disabled={sending}
+              >
+                {sending ? "Sending email…" : emailStatus === "sent" ? "Resend ticket email" : "Retry ticket email"}
+                <Icon name="mail" size={18} />
+              </button>
+            </div>
+          </section>
+
           <p className="order-note">
-            No payment was taken and no ticket was issued. The booking is saved in TickShow's
-            database; this confirmation is also cached in this browser at{" "}
-            <code>#/order/{booking.reference}</code>.
+            No payment was taken. Each PDF page is a DEMO / TEST ticket and is not valid for paid event entry.
           </p>
 
           <div className="order-actions">
