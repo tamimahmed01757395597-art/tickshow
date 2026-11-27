@@ -51,8 +51,8 @@ supabase/migrations/
   0024_event_ticket_designs.sql
   0025_organizer_invitations.sql
   0026_admin_organizer_deletion.sql
+  0027_remove_organizer_subsystem.sql
 supabase/functions/send-ticket-email/index.ts
-supabase/functions/invite-organizer/index.ts
 src/lib/ticket-pdf.ts                  (shared multi-ticket PDF renderer)
 supabase/tests/run-tests.mjs
 ```
@@ -64,16 +64,16 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 | Group | Tables |
 | --- | --- |
 | Identity / permissions | `profiles`, `roles`, `user_roles`, `admin_invitations` |
-| Organizers | `organizers`, `organizer_staff`, `event_staff` |
+| Staff assignments | `event_staff` |
 | Events | `event_categories`, `events`, `event_lineup_items` |
 | Tickets / inventory | `ticket_types`, `ticket_inventory`, `ticket_inventory_reservations` |
 | Orders / payments | `orders`, `order_items`, `payments`, `payment_webhook_events` |
 | Verification | `tickets`, `ticket_checkins` |
-| Finance | `refunds`, `organizer_commissions`, `organizer_payouts` |
+| Finance | `refunds` |
 | Storefront showcase | `storefront_events`, `storefront_bookings`, `storefront_tickets` |
 | Additional | `notifications`, `reviews`, `platform_settings`, `audit_logs` |
 
-`event_staff` provides explicit per-event staff assignments. `event_lineup_items` mirrors the existing frontend lineup structure. `storefront_events` supplies the public grid, event detail pages and coverflow carousel. When an administrator creates a showcase event with an active, approved organizer, real start/end times and capacity, migration `0023` also creates a linked normalized event and one General Admission ticket type with matching price and inventory. The catalog event starts as draft/pending for moderation; editing the showcase record keeps its linked event and ticket inventory synchronized. Older showcase rows stay unlinked until those operational details are supplied. Removing a showcase row does not delete its normalized event.
+`event_staff` provides explicit per-event staff assignments. `event_lineup_items` mirrors the existing frontend lineup structure. `storefront_events` supplies the public grid, event detail pages and coverflow carousel. An administrator enters the organizer name as plain text in the event editor; with start/end times and capacity, the showcase record creates a linked draft/pending catalog event and General Admission inventory. Editing the showcase record keeps its linked event and ticket inventory synchronized. Older showcase rows stay unlinked until those operational details are supplied. Removing a showcase row does not delete its normalized event.
 
 The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. This demo flow remains separate from normalized `orders` and does not reserve or sell the new catalog inventory.
 
@@ -81,7 +81,7 @@ Ticket issuance is handled by the authenticated `send-ticket-email` Edge Functio
 
 Admins can select a built-in ticket style (Classic, Midnight, Festival or Neon) and optionally upload event-specific JPEG/PNG artwork in **Event showcase**. Booking creation snapshots both settings, so a later design change does not alter tickets already booked. The PDF renderer places booking details and the unique QR in fixed clear areas over the artwork; keep the A6 portrait canvas clear enough for those overlays.
 
-The Admin panel's **Organizers** section can send invitations through the authenticated `invite-organizer` Edge Function, which stores a hashed, single-use seven-day invitation in `public.organizer_invitations` and emails the signup link through Brevo. The event editor also offers **Invite a new organizer**. Acceptance creates an organizer account in pending status; an administrator must approve and activate it before event assignment. Permanent organizer deletion is available only when there are no linked events, showcase entries, staff assignments, payouts or commissions; the owner's login account is retained. Administrator invitations are managed in **Staff & roles**.
+Migration `0027` removes organizer accounts, organizer invitations, organizer staff, payout/commission history, and the organizer-logo bucket. Existing organizer names are retained on event and showcase rows as plain text. Event create/update/delete permissions are administrator-only; `event_staff` remains for event-level operational assignments. Administrator invitations remain in **Staff & roles**.
 
 ### Important invariants
 
@@ -91,7 +91,7 @@ The Admin panel's **Organizers** section can send invitations through the authen
 - Payment records store Stripe identifiers/status only — no card numbers or CVCs.
 - Tickets store only a SHA-256-shaped `qr_token_hash`; the raw token is never stored.
 - `payments.payment_intent_id`, `checkout_session_id` and webhook `event_id` are unique for idempotency.
-- Admin panel updates cannot change order/payout amounts or ownership; database triggers enforce immutability.
+- Admin panel updates cannot change order amounts or ownership; database triggers enforce immutability.
 - Payment records and refunds remain read-only to clients; only trusted server/webhook code writes them.
 - Showcase edits synchronize linked catalog event details and General Admission inventory. They do not change normalized orders, payments, or the separate demo-booking checkout flow.
 - Demo bookings are not payments or paid entry tickets; authenticated customers can create bookings for currently visible, upcoming or ongoing events, then receive clearly marked DEMO / TEST PDFs.
@@ -129,12 +129,10 @@ If email confirmation is enabled, the account is created but the user must confi
 | Section | Live behaviour |
 | --- | --- |
 | Overview | Live counts and derived analytics from authorized reads |
-| Events | Approve, reject, publish, cancel, edit title/description/venue/status |
+| Events | Create from the showcase editor; approve/reject, publish, cancel and edit event details; event writes are admin-only |
 | Customers | View accounts and roles; suspend/activate; edit name/email/status |
-| Organizers | Approve/reject, suspend/activate, edit profile/status |
 | Orders & tickets | View demo storefront bookings and normalized orders; order amounts immutable |
 | Payments | Read-only payment/webhook metadata |
-| Payouts | View payouts and mark paid/in transit; amounts immutable |
 | Support | Moderate reviews and edit their status/comment |
 | Activity log | Read-only append-only audit trail written by triggers |
 | Staff & roles | Assign/remove roles through secure functions; issue single-use admin invites |
@@ -142,13 +140,12 @@ If email confirmation is enabled, the account is created but the user must confi
 
 ## 4. Row Level Security
 
-RLS is enabled on all 29 application tables. The default is deny.
+RLS is enabled on all 25 application tables. The default is deny.
 
-- **Anonymous**: published + approved events, approved organizers/reviews, active categories, public settings and visible storefront showcase records. Cannot create or read bookings.
+- **Anonymous**: published + approved events, approved reviews, active categories, public settings and visible storefront showcase records. Cannot create or read bookings.
 - **Customers**: their own profile, orders, tickets, payments, notifications, reviews and storefront bookings. Per-ticket token hashes are not granted to client roles.
-- **Organizers**: their own records only, and only with the admin-assigned `organizer` role. Cannot self-approve.
 - **Staff**: only events with an active `event_staff` assignment.
-- **Admins**: broad controlled reads/writes including full storefront showcase management, but no self-escalation and immutable financial amounts.
+- **Admins**: create, update and delete events, manage the storefront showcase and roles, but cannot self-escalate or alter immutable financial amounts.
 - **Role writes**: only `public.assign_user_role` / `public.remove_user_role`; no direct client DML.
 - **Service role**: server-only, bypasses RLS, never exposed through `VITE_`.
 
@@ -160,13 +157,12 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 | --- | --- | --- |
 | `event-images` | Yes | `{event_id}/{filename}` |
 | `event-gallery` | Yes | `{event_id}/{filename}` |
-| `organizer-logos` | Yes | `{organizer_id}/{filename}` |
 | `user-avatars` | Yes | `{user_id}/{filename}` |
 | `ticket-files` | No | `storefront-bookings/{booking_id}/tickets.pdf` for test PDFs; existing order paths remain supported |
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0026 in order.
+Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0027 in order. If the `organizer-logos` bucket contains files, remove those files from Supabase Storage before applying migration 0027; it stops rather than orphaning stored objects.
 
 ## 6. Environment variables
 
@@ -195,7 +191,7 @@ Brevo's API sends the PDF attachment using `BREVO_FROM_EMAIL`. Add and verify th
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0026` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0027` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -208,7 +204,6 @@ npm run db:migrate
 npm run db:types:remote
 npx supabase@latest secrets set BREVO_API_KEY=YOUR_BREVO_API_KEY BREVO_FROM_EMAIL=YOUR_VERIFIED_SENDER_EMAIL BREVO_FROM_NAME=TickShow SITE_URL=https://your-site.vercel.app --remote=YOUR_PROJECT_REF
 npx supabase@latest functions deploy send-ticket-email --remote=YOUR_PROJECT_REF
-npx supabase@latest functions deploy invite-organizer --remote=YOUR_PROJECT_REF
 npm run dev
 ```
 
@@ -231,36 +226,38 @@ npm run db:test
 | `npm run db:bundle` | Regenerate `supabase/bootstrap.sql` from all migrations |
 | `npm run build` | Production frontend build |
 
-Migrations are idempotent. Migration 0019 intentionally deletes the known seeded showcase examples and their associated demo bookings; no other existing event data is targeted.
+Most migrations use guarded DDL; apply each migration once in order. Migration 0019 deletes only the known seeded showcase examples and associated demo bookings. Migration 0027 is an intentional, irreversible cleanup that permanently deletes organizer payout/commission history; take a database backup before applying it.
+
+After applying migration `0027`, redeploy the frontend and delete the previously deployed `invite-organizer` Edge Function from the Supabase Dashboard. If `organizer-logos` contains any files, empty that bucket through Storage before running the migration; the migration intentionally aborts when files remain.
 
 ## 8. First administrator bootstrap
 
 1. Sign up once through `#/signup` **without** an invite token (this creates a customer account).
 2. In the Supabase SQL editor, run the template in `supabase/seed.sql` to assign the `admin` role to that user.
 3. Use the unlinked `#/staff-access` route to sign in as the bootstrapped admin, open **Staff & roles**, and invite the remaining administrators.
-4. Seed or invite organizer/staff roles the same way. Users cannot grant these roles to themselves.
+4. Assign the `staff` role only to trusted staff who need event-level access. Users cannot grant roles to themselves.
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0026 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0027 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
 - All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
 - Inventory counters, one-time check-in and immutability guards.
 - Public/private visibility, tenant isolation and role separation.
 - Invite-only admin registration, token reuse prevention and email matching.
-- Admin order/payout status updates plus audit-log writes.
+- Admin order status updates plus audit-log writes.
 - `public.has_role('admin')` returning the correct result for admin and customer sessions.
 - Explicit client table/function privileges, so RLS decisions are not blocked by missing `GRANT`s.
 - Storefront showcase visibility, non-admin write blocking, and admin grouping/carousel updates.
 - Showcase-to-catalog event creation, draft moderation state, ticket inventory creation, and edit synchronization.
 - Per-event ticket design validation and booking snapshots.
-- Organizer invitation authorization, email matching, one-time acceptance and pending approval.
+- Removal of organizer tables and IDs, plus administrator-only event writes.
 - Public demo booking persistence, database-priced totals, validation and private buyer details.
 - Per-ticket token hashing, duplicate email suppression, single-use downloads, unique QR verification, and checked-in ticket rejection.
 - Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.
 
-Latest local validation: 98 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Live Supabase and Brevo delivery have not been tested.
+Latest local validation: 96 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Live Supabase and Brevo delivery have not been tested.
 
 ## 10. Not included
 

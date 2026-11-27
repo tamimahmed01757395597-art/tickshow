@@ -1,4 +1,3 @@
-import { FunctionsHttpError } from "@supabase/supabase-js";
 import { requireSupabase } from "./supabase";
 import { generateInviteToken, sha256Hex } from "./tokens";
 import type { Database } from "../types/database";
@@ -7,12 +6,9 @@ type Tables = Database["public"]["Tables"];
 type Enums = Database["public"]["Enums"];
 
 type EventRow = Tables["events"]["Row"];
-type OrganizerRow = Tables["organizers"]["Row"];
 type OrderRow = Tables["orders"]["Row"];
 type StorefrontBookingRow = Tables["storefront_bookings"]["Row"];
-type OrganizerInvitationRow = Tables["organizer_invitations"]["Row"];
 type PaymentRow = Tables["payments"]["Row"];
-type PayoutRow = Tables["organizer_payouts"]["Row"];
 type ReviewRow = Tables["reviews"]["Row"];
 type AuditRow = Tables["audit_logs"]["Row"];
 type InvitationRow = Tables["admin_invitations"]["Row"];
@@ -21,10 +17,8 @@ export type AdminSectionKey =
   | "overview"
   | "events"
   | "customers"
-  | "organizers"
   | "orders"
   | "payments"
-  | "payouts"
   | "support"
   | "activity"
   | "staff"
@@ -34,7 +28,6 @@ export type OverviewItem = { label: string; value: string; note: string };
 export type Overview = { metrics: OverviewItem[]; analytics: OverviewItem[] };
 
 export type EventView = EventRow & { organizerName: string };
-export type EligibleOrganizer = Pick<OrganizerRow, "id" | "name">;
 export type ShowcaseRecord = Tables["storefront_events"]["Row"];
 export type CustomerView = {
   id: string;
@@ -45,16 +38,9 @@ export type CustomerView = {
   roles: string[];
   created_at: string;
 };
-export type OrganizerView = OrganizerRow & { ownerName: string };
-export type OrganizerInvitationView = Pick<
-  OrganizerInvitationRow,
-  "id" | "email" | "organizer_name" | "organizer_slug" | "expires_at" | "used_at" | "created_at"
->;
-export type OrganizerData = { organizers: OrganizerView[]; invitations: OrganizerInvitationView[] };
 export type OrderView = OrderRow & { eventTitle: string };
 export type StorefrontBookingView = StorefrontBookingRow;
 export type PaymentView = PaymentRow & { orderNumber: string };
-export type PayoutView = PayoutRow & { organizerName: string };
 export type SupportView = ReviewRow & { eventTitle: string; customerName: string };
 export type ActivityView = AuditRow & { actorName: string };
 export type StaffView = {
@@ -89,28 +75,25 @@ function summarizeCurrency(amounts: Array<{ amount: number; currency: string }>)
 export async function fetchOverview(): Promise<Overview> {
   const client = requireSupabase();
   const [
-    profiles, assignments, roleRows, organizers, events, tickets, orders,
-    payments, commissions, payouts, reviews, showcaseEvents, demoBookings,
+    profiles, assignments, roleRows, events, tickets, orders,
+    payments, reviews, showcaseEvents, demoBookings,
   ] =
     await Promise.all([
       client.from("profiles").select("id", { count: "exact", head: true }),
       client.from("user_roles").select("user_id, role_id"),
       client.from("roles").select("id, name"),
-      client.from("organizers").select("id", { count: "exact", head: true }),
-      client.from("events").select("id, title, status, approval_status, organizer_id"),
+      client.from("events").select("id, title, status, approval_status"),
       client.from("tickets").select("id", { count: "exact", head: true }),
       client.from("orders").select("id, event_id, status"),
       client.from("payments").select("amount, currency, status"),
-      client.from("organizer_commissions").select("commission_amount, currency"),
-      client.from("organizer_payouts").select("amount, currency, status"),
       client.from("reviews").select("id, status"),
       client.from("storefront_events").select("id, event_group, is_visible"),
       client.from("storefront_bookings").select("id, ticket_email_status"),
     ]);
 
   for (const result of [
-    profiles, assignments, roleRows, organizers, events, tickets, orders,
-    payments, commissions, payouts, reviews, showcaseEvents, demoBookings,
+    profiles, assignments, roleRows, events, tickets, orders,
+    payments, reviews, showcaseEvents, demoBookings,
   ]) {
     if (result.error) throw new Error(result.error.message);
   }
@@ -122,7 +105,6 @@ export async function fetchOverview(): Promise<Overview> {
   const eventRows = events.data ?? [];
   const orderRows = orders.data ?? [];
   const paymentRows = payments.data ?? [];
-  const payoutRows = payouts.data ?? [];
   const showcaseRows = showcaseEvents.data ?? [];
   const demoBookingRows = demoBookings.data ?? [];
   const succeededPayments = paymentRows.filter((row) => row.status === "succeeded");
@@ -133,15 +115,6 @@ export async function fetchOverview(): Promise<Overview> {
   }
   const topEventId = Array.from(ordersByEvent.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
   const topEvent = eventRows.find((event) => event.id === topEventId);
-
-  const eventsByOrganizer = new Map<string, number>();
-  for (const event of eventRows.filter((row) => row.status === "published")) {
-    eventsByOrganizer.set(event.organizer_id, (eventsByOrganizer.get(event.organizer_id) ?? 0) + 1);
-  }
-  const topOrganizerId = Array.from(eventsByOrganizer.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
-  const topOrganizer = topOrganizerId
-    ? (await client.from("organizers").select("name").eq("id", topOrganizerId).maybeSingle())
-    : null;
 
   const published = eventRows.filter(
     (row) => row.status === "published" && row.approval_status === "approved",
@@ -154,7 +127,6 @@ export async function fetchOverview(): Promise<Overview> {
     metrics: [
       { label: "Registered users", value: String(profiles.count ?? 0), note: "Profiles" },
       { label: "Customers", value: String(countRole("customer")), note: "Customer role" },
-      { label: "Organizers", value: String(organizers.count ?? 0), note: "Organizer accounts" },
       { label: "Staff", value: String(countRole("staff")), note: "Staff role" },
       { label: "Total events", value: String(eventRows.length), note: "All statuses" },
       { label: "Published events", value: String(published), note: "Approved and live" },
@@ -180,26 +152,6 @@ export async function fetchOverview(): Promise<Overview> {
         label: "Verified revenue",
         value: summarizeCurrency(succeededPayments),
         note: "Succeeded payments",
-      },
-      {
-        label: "Platform commission",
-        value: summarizeCurrency(
-          (commissions.data ?? []).map((row) => ({
-            amount: row.commission_amount,
-            currency: row.currency,
-          })),
-        ),
-        note: "Calculated commissions",
-      },
-      {
-        label: "Pending payouts",
-        value: summarizeCurrency(
-          payoutRows.filter((row) => row.status === "pending").map((row) => ({
-            amount: row.amount,
-            currency: row.currency,
-          })),
-        ),
-        note: "Awaiting settlement",
       },
     ],
     analytics: [
@@ -239,62 +191,20 @@ export async function fetchOverview(): Promise<Overview> {
         value: topEvent?.title ?? "—",
         note: topEventId ? `${ordersByEvent.get(topEventId) ?? 0} orders` : "No orders yet",
       },
-      {
-        label: "Top-performing organizers",
-        value: topOrganizer?.data?.name ?? "—",
-        note: topOrganizerId ? `${eventsByOrganizer.get(topOrganizerId) ?? 0} published events` : "No events yet",
-      },
     ],
   };
 }
 
 export async function fetchEvents(): Promise<EventView[]> {
-  const client = requireSupabase();
-  const [events, organizers] = await Promise.all([
-    client.from("events").select("*").order("created_at", { ascending: false }),
-    client.from("organizers").select("id, name"),
-  ]);
-  if (events.error) throw new Error(events.error.message);
-  if (organizers.error) throw new Error(organizers.error.message);
-  const names = new Map((organizers.data ?? []).map((row) => [row.id, row.name]));
-  return (events.data ?? []).map((event) => ({
-    ...event,
-    organizerName: names.get(event.organizer_id) ?? "—",
-  }));
-}
-
-export async function fetchEligibleOrganizers(): Promise<EligibleOrganizer[]> {
-  const { data, error } = await requireSupabase()
-    .from("organizers")
-    .select("id, name")
-    .eq("status", "active")
-    .eq("approval_status", "approved")
-    .order("name", { ascending: true });
+  const { data: events, error } = await requireSupabase()
+    .from("events")
+    .select("*")
+    .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
-export async function inviteOrganizer(name: string, email: string): Promise<void> {
-  const { data, error } = await requireSupabase()
-    .functions.invoke<{ invited: boolean }>("invite-organizer", {
-      body: { organizer_name: name.trim(), email: email.trim() },
-    });
-  if (error) {
-    let message = error.message;
-    if (error instanceof FunctionsHttpError && error.context instanceof Response) {
-      const body: unknown = await error.context.clone().json().catch(() => null);
-      if (
-        body &&
-        typeof body === "object" &&
-        "error" in body &&
-        typeof body.error === "string"
-      ) {
-        message = body.error;
-      }
-    }
-    throw new Error(message);
-  }
-  if (!data?.invited) throw new Error("The organizer invitation was not sent.");
+  return (events ?? []).map((event) => ({
+    ...event,
+    organizerName: event.organizer_name,
+  }));
 }
 
 export async function fetchShowcase(): Promise<ShowcaseRecord[]> {
@@ -414,29 +324,6 @@ export async function fetchCustomers(): Promise<CustomerView[]> {
   }));
 }
 
-export async function fetchOrganizerData(): Promise<OrganizerData> {
-  const client = requireSupabase();
-  const [organizers, profiles, invitations] = await Promise.all([
-    client.from("organizers").select("*").order("created_at", { ascending: false }),
-    client.from("profiles").select("id, full_name, email"),
-    client
-      .from("organizer_invitations")
-      .select("id, email, organizer_name, organizer_slug, expires_at, used_at, created_at")
-      .order("created_at", { ascending: false }),
-  ]);
-  if (organizers.error) throw new Error(organizers.error.message);
-  if (profiles.error) throw new Error(profiles.error.message);
-  if (invitations.error) throw new Error(invitations.error.message);
-  const owners = new Map((profiles.data ?? []).map((row) => [row.id, row.full_name ?? row.email ?? "—"]));
-  return {
-    organizers: (organizers.data ?? []).map((row) => ({
-      ...row,
-      ownerName: owners.get(row.owner_id) ?? "—",
-    })),
-    invitations: invitations.data ?? [],
-  };
-}
-
 export async function fetchOrders(): Promise<OrderView[]> {
   const client = requireSupabase();
   const [orders, events] = await Promise.all([
@@ -475,21 +362,6 @@ export async function fetchPayments(): Promise<PaymentView[]> {
   return (payments.data ?? []).map((row) => ({
     ...row,
     orderNumber: `${numbers.get(row.order_id) ?? "—"} · ${webhookCount} webhook event(s)`,
-  }));
-}
-
-export async function fetchPayouts(): Promise<PayoutView[]> {
-  const client = requireSupabase();
-  const [payouts, organizers] = await Promise.all([
-    client.from("organizer_payouts").select("*").order("created_at", { ascending: false }),
-    client.from("organizers").select("id, name"),
-  ]);
-  if (payouts.error) throw new Error(payouts.error.message);
-  if (organizers.error) throw new Error(organizers.error.message);
-  const names = new Map((organizers.data ?? []).map((row) => [row.id, row.name]));
-  return (payouts.data ?? []).map((row) => ({
-    ...row,
-    organizerName: names.get(row.organizer_id) ?? "—",
   }));
 }
 
@@ -569,37 +441,11 @@ export async function updateProfileStatus(
   if (error) throw new Error(error.message);
 }
 
-export async function updateOrganizer(
-  id: string,
-  patch: Tables["organizers"]["Update"],
-): Promise<void> {
-  const { error } = await requireSupabase().from("organizers").update(patch).eq("id", id);
-  if (error) throw new Error(error.message);
-}
-
-export async function deleteOrganizer(id: string): Promise<void> {
-  const { data, error } = await requireSupabase().rpc("delete_organizer", {
-    p_organizer_id: id,
-  });
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("The organizer was not deleted.");
-}
-
 export async function updateOrderStatus(id: string, status: Enums["order_status"]): Promise<void> {
   const patch: Tables["orders"]["Update"] = { status };
   if (status === "paid") patch.paid_at = new Date().toISOString();
   if (status === "cancelled") patch.cancelled_at = new Date().toISOString();
   const { error } = await requireSupabase().from("orders").update(patch).eq("id", id);
-  if (error) throw new Error(error.message);
-}
-
-export async function updatePayoutStatus(
-  id: string,
-  status: Enums["payout_status"],
-): Promise<void> {
-  const patch: Tables["organizer_payouts"]["Update"] = { status };
-  if (status === "paid") patch.paid_at = new Date().toISOString();
-  const { error } = await requireSupabase().from("organizer_payouts").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }
 

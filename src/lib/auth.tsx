@@ -20,7 +20,6 @@ export type SignUpInput = {
   password: string;
   fullName: string;
   inviteToken?: string;
-  organizerInviteToken?: string;
   returnTo?: string;
 };
 
@@ -124,15 +123,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       fullName,
       inviteToken,
-      organizerInviteToken,
       returnTo,
     }: SignUpInput) => {
       const client = requireSupabase();
       const token = inviteToken?.trim() ?? "";
-      const organizerToken = organizerInviteToken?.trim() ?? "";
-      if (token && organizerToken) {
-        throw new Error("Use either an administrator or organizer invitation, not both.");
-      }
 
       const { data, error } = await client.auth.signUp({
         email: email.trim(),
@@ -157,17 +151,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(`Account created, but the invitation failed: ${invitationError.message}`);
         }
       }
-      if (organizerToken) {
-        const tokenHash = await sha256Hex(organizerToken);
-        const { error: invitationError } = await client.rpc("accept_organizer_invitation", {
-          p_user_id: data.user.id,
-          p_token_hash: tokenHash,
-        });
-        if (invitationError) {
-          throw new Error(`Account created, but the organizer invitation failed: ${invitationError.message}`);
-        }
-      }
-
       await refresh();
       return { needsConfirmation: !data.session };
     },

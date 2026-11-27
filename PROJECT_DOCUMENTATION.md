@@ -66,7 +66,7 @@ The booking funnel is still a **frontend demo**: it stores orders in `localStora
 
 - A **discovery front end**: concerts, sports, festivals, theatre, technology events, workshops, business summits and other experiences around Manikganj.
 - A **demo booking funnel**: event detail → ticket quantity → attendee details → confirmation ticket.
-- An **admin operations console**: live Supabase-backed management of events, customers, organizers, orders, payouts, reviews, roles and invitations.
+- An **admin operations console**: live Supabase-backed management of events, customers, orders, payments, reviews, roles and invitations.
 - A **design showcase**: coverflow physics, scroll-linked footer reveal, glass surfaces, responsive grids and reduced-motion support.
 
 ### 2.2 Brand
@@ -122,9 +122,10 @@ Later work in the working tree added migration `0016_grants_and_privileges.sql`,
 - **Hash routing instead of a router library.** `getRoute()` parses `window.location.hash`, so static hosting needs no rewrite rules.
 - **Single-file production build.** `vite-plugin-singlefile` inlines CSS and JS into `dist/index.html`.
 - **Publishable client only.** The browser imports `@supabase/supabase-js` with only the URL and anon key. The service-role key is never used in `VITE_` variables or frontend code.
-- **Linked showcase and event catalog.** `public.storefront_events` owns storefront presentation. New showcase records with an approved organizer, event times and capacity create a linked draft/pending `public.events` record and a General Admission inventory row; showcase edits keep those catalog fields in sync. Each event can also select a built-in ticket style and upload JPEG/PNG artwork, which is snapshotted onto bookings for consistent ticket PDFs. The demo booking flow remains separate from normalized inventory sales, orders and finance.
+- **Linked showcase and event catalog.** `public.storefront_events` owns storefront presentation. Admins enter the organizer name as plain text; showcase records with event times and capacity create a linked draft/pending `public.events` record and a General Admission inventory row. Showcase edits keep those catalog fields in sync. Each event can also select a built-in ticket style and upload JPEG/PNG artwork, which is snapshotted onto bookings for consistent ticket PDFs. The demo booking flow remains separate from normalized inventory sales and orders.
+- **Admin-only event management.** Event creation, updates and deletion require the administrator role; organizer accounts and invitation workflows have been removed.
 - **Secure role assignment.** Clients call `assign_user_role`, `remove_user_role`, `create_admin_invitation` and `accept_admin_invitation` RPCs; direct self-assignment is blocked.
-- **Idempotent migrations.** Every migration uses `IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP ... IF EXISTS`, `ON CONFLICT DO NOTHING` or guarded seeds, so the combined `bootstrap.sql` is safe to re-run.
+- **Forward-only migrations.** Schema migrations are applied once in order; migration `0027` is an irreversible cleanup that permanently removes organizer payout/commission history, so back up before applying it.
 
 ---
 
@@ -218,10 +219,10 @@ D:\maximalism_tickshow
 │   └── vite-env.d.ts
 ├── supabase/
 │   ├── config.toml
-│   ├── bootstrap.sql                # all 26 migrations combined
+│   ├── bootstrap.sql                # all 27 migrations combined
 │   ├── build-bootstrap.mjs
 │   ├── seed.sql                     # first-admin bootstrap template
-│   ├── migrations/                  # 0001–0026
+│   ├── migrations/                  # 0001–0027
 │   └── tests/run-tests.mjs          # PGlite validation suite
 ├── .env.example
 ├── DESIGN.md
@@ -276,11 +277,10 @@ Supabase project
   │    ├── moderation, audit and immutability triggers
   │    └── admin/auth RPCs
   ├── Auth (email/password, sessions)
-  └── Storage (5 buckets with path-scoped policies)
+  └── Storage (4 buckets with path-scoped policies)
        └── private multi-page demo PDFs
 Supabase Edge Function
   └── send-ticket-email → jsPDF + QR code → Brevo transactional email
-  └── invite-organizer → one-time invitation → Brevo transactional email
 ```
 
 ### 6.3 Storefront showcase data flow
@@ -320,7 +320,7 @@ The admin panel re-checks roles whenever it opens and exposes a **Refresh access
 
 ```text
 AdminPanel form → src/lib/admin.ts
-                    ├── events/profiles/organizers/orders/payouts/reviews updates
+                    ├── events/profiles/orders/reviews updates
                     ├── showcase create/update/delete
                     └── RPCs for role assignment and invitations
                           ↓
@@ -433,17 +433,15 @@ Raised-surface section with a lime **Find your next event** CTA.
 
 ### 7.14 Live admin panel
 
-Role-gated at `#/admin`. Eleven sections:
+Role-gated at `#/admin`. Nine sections:
 
 | Section | Live behaviour |
 |---|---|
 | Overview | Counts and derived metrics from authorized Supabase reads |
-| Events | Approve/reject/publish/cancel and edit core event fields |
+| Events | Create via showcase; approve/reject/publish/cancel and edit core event fields |
 | Customers | View profiles and roles; suspend/activate; edit name/email/status |
-| Organizers | Approve/reject, suspend/activate and edit profile/status |
 | Orders & tickets | View orders and change operational status; amounts immutable |
 | Payments | Read-only payment and webhook metadata |
-| Payouts | View payouts and mark paid/in transit; amounts immutable |
 | Support | Moderate reviews and edit status/comment |
 | Activity log | Read-only audit trail written by database triggers |
 | Staff & roles | Assign/remove roles through secure RPCs; issue single-use admin invites |
@@ -518,12 +516,12 @@ Application tables, all with RLS enabled:
 | Group | Tables |
 |---|---|
 | Identity / permissions | `profiles`, `roles`, `user_roles`, `admin_invitations` |
-| Organizers | `organizers`, `organizer_staff`, `event_staff` |
+| Event staff assignments | `event_staff` |
 | Events | `event_categories`, `events`, `event_lineup_items` |
 | Tickets / inventory | `ticket_types`, `ticket_inventory`, `ticket_inventory_reservations` |
 | Orders / payments | `orders`, `order_items`, `payments`, `payment_webhook_events` |
 | Verification | `tickets`, `ticket_checkins` |
-| Finance | `refunds`, `organizer_commissions`, `organizer_payouts` |
+| Finance | `refunds` |
 | Showcase / demo tickets | `storefront_events`, `storefront_bookings`, `storefront_tickets` |
 | Engagement / admin | `notifications`, `reviews`, `platform_settings`, `audit_logs` |
 
@@ -557,6 +555,7 @@ Application tables, all with RLS enabled:
 | `0024_event_ticket_designs.sql` | Event-specific ticket styles/artwork and booking snapshots |
 | `0025_organizer_invitations.sql` | Email invitations and pending organizer account acceptance |
 | `0026_admin_organizer_deletion.sql` | Guarded permanent deletion of unlinked organizer profiles |
+| `0027_remove_organizer_subsystem.sql` | Preserve event organizer names as text, restrict event writes to admins, remove organizer and payout/commission data |
 
 ### 9.4 Important invariants
 
@@ -566,7 +565,7 @@ Application tables, all with RLS enabled:
 - Payment records contain no card numbers or CVCs; Stripe IDs are unique for idempotency.
 - Tickets store only a SHA-256-shaped QR token hash.
 - Storefront demo ticket token hashes are private to the Edge Function/service role; public verification returns status and ticket details only.
-- Admin updates cannot change order/payout amounts or ownership.
+- Admin updates cannot change order amounts or ownership.
 - Payments, refunds, webhook events, audit logs and role writes are not client-writable.
 - Showcase edits cannot change inventory, orders or payments; they only change display data.
 
@@ -777,21 +776,20 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 
 | Role | Access |
 |---|---|
-| Anonymous | Published/approved events, approved organizers/reviews, active categories, public settings and visible showcase records |
+| Anonymous | Published/approved events, approved reviews, active categories, public settings and visible showcase records |
 | Customer | Own profile, orders, tickets, payments, notifications and reviews |
-| Organizer | Own records only and only after admin-assigned `organizer` role; cannot self-approve |
 | Staff | Only events with an active `event_staff` assignment |
-| Admin | Broad controlled reads/writes, full showcase management, role assignment and invitations; no self-escalation; immutable financial fields |
+| Admin | Create/update/delete events, full showcase management, role assignment and invitations; no self-escalation; immutable financial fields |
 | Service role | Server-only, bypasses RLS, never exposed through `VITE_` |
 
 ### 15.2 Controls
 
-- RLS is enabled on all 27 tables; the default is deny.
+- RLS is enabled on all 25 application tables; the default is deny.
 - Security helpers are `SECURITY DEFINER` with `SET search_path = public, pg_temp`.
 - Invite tokens are random 48-character strings; only SHA-256 hashes are stored.
-- `prevent_user_role_self_escalation` blocks direct admin/organizer self-assignment.
+- `prevent_user_role_self_escalation` blocks direct admin self-assignment.
 - `assign_user_role` and `remove_user_role` are the only client paths for role changes.
-- Admin order/payout guards allow status changes but freeze amounts and ownership.
+- Admin order guards allow status changes but freeze amounts and ownership.
 - Audit logs are append-only from the client's perspective.
 - Storage buckets use path-scoped policies; private ticket files require order ownership.
 - Migration `0016` makes PostgreSQL `GRANT`s explicit without weakening RLS.

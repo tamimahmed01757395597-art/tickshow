@@ -9,11 +9,7 @@ import {
   type CustomerView,
   type EventView,
   type OrderView,
-  type OrganizerInvitationView,
-  type OrganizerData,
-  type OrganizerView,
   type PaymentView,
-  type PayoutView,
   type ShowcaseRecord,
   type StaffData,
   type SupportView,
@@ -30,10 +26,8 @@ const ADMIN_SECTIONS = [
   { id: "overview", label: "Overview", mark: "OV" },
   { id: "events", label: "Events", mark: "EV" },
   { id: "customers", label: "Customers", mark: "CU" },
-  { id: "organizers", label: "Organizers", mark: "OR" },
   { id: "orders", label: "Orders & tickets", mark: "OT" },
   { id: "payments", label: "Payments", mark: "PA" },
-  { id: "payouts", label: "Payouts", mark: "PO" },
   { id: "support", label: "Support", mark: "SU" },
   { id: "activity", label: "Activity log", mark: "AL" },
   { id: "staff", label: "Staff & roles", mark: "SR" },
@@ -46,10 +40,8 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   overview: "Live totals computed directly from authorized database reads.",
   events: "Review, approve, publish and edit event listings across TickShow.",
   customers: "Find customer accounts and manage account status.",
-  organizers: "Manage organizer profiles, invitations, verification and account status.",
   orders: "Review orders and update operational order status.",
   payments: "Read-only payment records maintained by trusted webhook processing.",
-  payouts: "Track organizer payout requests and settle approved payouts.",
   support: "Moderate customer reviews and feedback.",
   activity: "Append-only audit trail of administrative mutations.",
   staff: "Assign roles and issue single-use administrator invitations.",
@@ -66,8 +58,6 @@ type EditField = {
   full?: boolean;
   hint?: string;
 };
-
-const INVITE_ORGANIZER_OPTION = "__invite_organizer__";
 
 type DataTableColumn<T> = { label: string; render: (row: T) => ReactNode };
 
@@ -110,32 +100,6 @@ function eventApprovalPatch(
     approval_status: approval,
     approved_at: approval === "approved" ? (row.approved_at ?? new Date().toISOString()) : null,
   };
-}
-
-function organizerPatch(
-  row: OrganizerView,
-  status?: Enums["organizer_status"],
-  approval?: Enums["approval_status"],
-): Database["public"]["Tables"]["organizers"]["Update"] {
-  const patch: Database["public"]["Tables"]["organizers"]["Update"] = {};
-  if (status) {
-    patch.status = status;
-    if (status === "active" && row.approval_status !== "approved") {
-      patch.approval_status = "approved";
-      patch.approved_at = row.approved_at ?? new Date().toISOString();
-    }
-  }
-  if (approval) {
-    patch.approval_status = approval;
-    patch.approved_at =
-      approval === "approved" ? (row.approved_at ?? new Date().toISOString()) : null;
-    if (approval === "approved" && row.status === "pending") {
-      patch.status = "active";
-    } else if (approval !== "approved" && (status ?? row.status) === "active") {
-      patch.status = "pending";
-    }
-  }
-  return patch;
 }
 
 function StatusPill({ value }: { value: string }) {
@@ -267,7 +231,6 @@ function EditModal({
   onClose,
   wide = false,
   saveLabel = "Save changes",
-  onInviteOrganizer,
 }: {
   title: string;
   fields: EditField[];
@@ -279,7 +242,6 @@ function EditModal({
   onClose: () => void;
   wide?: boolean;
   saveLabel?: string;
-  onInviteOrganizer?: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -344,16 +306,7 @@ function EditModal({
                 <select
                   required={field.required}
                   value={values[field.key] ?? ""}
-                  onChange={(event) => {
-                    if (
-                      field.key === "organizer_id" &&
-                      event.target.value === INVITE_ORGANIZER_OPTION
-                    ) {
-                      onInviteOrganizer?.();
-                      return;
-                    }
-                    set(field.key, event.target.value);
-                  }}
+                  onChange={(event) => set(field.key, event.target.value)}
                 >
                   {(field.options ?? []).map((option) => (
                     <option
@@ -527,6 +480,7 @@ function EventsSection() {
           fields={[
             { key: "title", label: "Title" },
             { key: "description", label: "Description", type: "textarea" },
+            { key: "organizer_name", label: "Organizer name", required: true },
             { key: "venue_name", label: "Venue" },
             { key: "status", label: "Status", type: "select", options: EVENT_STATUSES },
             { key: "approval_status", label: "Approval", type: "select", options: APPROVAL_STATUSES },
@@ -536,6 +490,7 @@ function EventsSection() {
             await change(editing.id, {
               title: values.title,
               description: values.description || null,
+              organizer_name: values.organizer_name.trim(),
               venue_name: values.venue_name || null,
               ...eventStatusPatch(editing, values.status as Enums["event_status"]),
               ...eventApprovalPatch(editing, values.approval_status as Enums["approval_status"]),
@@ -614,198 +569,6 @@ function CustomersSection() {
             await api.updateProfileStatus(editing.id, values.status as Enums["account_status"]);
             reload();
           }}
-        />
-      )}
-    </SectionState>
-  );
-}
-
-function OrganizersSection() {
-  const { data, error, loading, reload } = useAdminFetch<OrganizerData>(api.fetchOrganizerData);
-  const [editing, setEditing] = useState<OrganizerView | null>(null);
-  const [inviting, setInviting] = useState(false);
-
-  const deleteOrganizer = async (row: OrganizerView) => {
-    const confirmed = window.confirm(
-      `Permanently delete "${row.name}"? This is allowed only when it has no linked events, showcase entries, staff assignments, payouts, or commissions. The owner's login account will remain.`,
-    );
-    if (!confirmed) return;
-    try {
-      await api.deleteOrganizer(row.id);
-      reload();
-    } catch (caught) {
-      window.alert(messageOf(caught));
-    }
-  };
-
-  return (
-    <SectionState loading={loading} error={error} onRetry={reload}>
-      <section className="admin-section-block">
-        <div className="admin-section-heading">
-          <div>
-            <h2>Organizer accounts</h2>
-            <p>Invite organizers, manage approval, or delete an unlinked organizer profile.</p>
-          </div>
-          <button
-            className="admin-button admin-button-primary"
-            type="button"
-            onClick={() => setInviting(true)}
-          >
-            Invite organizer
-          </button>
-        </div>
-        <DataTable<OrganizerView>
-          rows={data?.organizers ?? []}
-          rowKey={(row) => row.id}
-          columns={[
-            {
-              label: "Organizer",
-              render: (row) => (
-                <div className="admin-cell-title">
-                  <strong>{row.name}</strong>
-                  <span>{row.slug}</span>
-                </div>
-              ),
-            },
-            { label: "Owner", render: (row) => row.ownerName },
-            {
-              label: "Status",
-              render: (row) => (
-                <StatusSelect
-                  value={row.status}
-                  options={["pending", "active", "suspended"]}
-                  onChange={(next) =>
-                    api
-                      .updateOrganizer(row.id, organizerPatch(row, next as Enums["organizer_status"]))
-                      .then(reload)
-                      .catch((caught: unknown) => window.alert(messageOf(caught)))
-                  }
-                />
-              ),
-            },
-            {
-              label: "Approval",
-              render: (row) => (
-                <StatusSelect
-                  value={row.approval_status}
-                  options={APPROVAL_STATUSES}
-                  onChange={(next) =>
-                    api
-                      .updateOrganizer(
-                        row.id,
-                        organizerPatch(row, undefined, next as Enums["approval_status"]),
-                      )
-                      .then(reload)
-                      .catch((caught: unknown) => window.alert(messageOf(caught)))
-                  }
-                />
-              ),
-            },
-            { label: "Contact", render: (row) => row.contact_email ?? "—" },
-            {
-              label: "Actions",
-              render: (row) => (
-                <div className="admin-pill-group">
-                  <button
-                    className="admin-button admin-button-quiet"
-                    type="button"
-                    onClick={() => setEditing(row)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="admin-button admin-button-danger"
-                    type="button"
-                    onClick={() => void deleteOrganizer(row)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              ),
-            },
-          ]}
-        />
-      </section>
-      <section className="admin-section-block">
-        <div className="admin-section-heading">
-          <div>
-            <h2>Organizer invitations</h2>
-            <p>Invitations are recorded here until they are accepted or expire.</p>
-          </div>
-        </div>
-        <DataTable<OrganizerInvitationView>
-          rows={data?.invitations ?? []}
-          rowKey={(row) => row.id}
-          columns={[
-            {
-              label: "Invitee",
-              render: (row) => (
-                <div className="admin-cell-title">
-                  <strong>{row.organizer_name}</strong>
-                  <span>{row.email}</span>
-                </div>
-              ),
-            },
-            {
-              label: "Status",
-              render: (row) => (
-                <StatusPill
-                  value={
-                    row.used_at
-                      ? "accepted"
-                      : new Date(row.expires_at).getTime() <= Date.now()
-                        ? "expired"
-                        : "pending"
-                  }
-                />
-              ),
-            },
-            { label: "Created", render: (row) => formatDate(row.created_at) },
-            { label: "Expires", render: (row) => formatDate(row.expires_at) },
-          ]}
-        />
-      </section>
-      {editing && (
-        <EditModal
-          title={`Edit ${editing.name}`}
-          initial={editing}
-          fields={[
-            { key: "name", label: "Name" },
-            { key: "description", label: "Description", type: "textarea" },
-            { key: "contact_email", label: "Contact email" },
-            { key: "status", label: "Status", type: "select", options: ["pending", "active", "suspended"] },
-            { key: "approval_status", label: "Approval", type: "select", options: APPROVAL_STATUSES },
-          ]}
-          onClose={() => setEditing(null)}
-          onSave={async (values) => {
-            await api.updateOrganizer(editing.id, {
-              name: values.name,
-              description: values.description || null,
-              contact_email: values.contact_email || null,
-              ...organizerPatch(
-                editing,
-                values.status as Enums["organizer_status"],
-                values.approval_status as Enums["approval_status"],
-              ),
-            });
-            reload();
-          }}
-        />
-      )}
-      {inviting && (
-        <EditModal
-          title="Invite a new organizer"
-          fields={[
-            { key: "organizer_name", label: "Organizer name", required: true },
-            { key: "email", label: "Email address", type: "email", required: true },
-          ]}
-          initial={{}}
-          onClose={() => setInviting(false)}
-          onSave={async (values) => {
-            await api.inviteOrganizer(values.organizer_name, values.email);
-            reload();
-          }}
-          saveLabel="Send invitation"
         />
       )}
     </SectionState>
@@ -939,56 +702,6 @@ function PaymentsSection() {
   );
 }
 
-const PAYOUT_STATUSES: Enums["payout_status"][] = [
-  "pending",
-  "in_transit",
-  "paid",
-  "failed",
-  "cancelled",
-];
-
-function PayoutsSection() {
-  const { data, error, loading, reload } = useAdminFetch(api.fetchPayouts);
-  return (
-    <SectionState loading={loading} error={error} onRetry={reload}>
-      <div className="admin-readonly-note">Payout amounts and organizers are immutable from the admin client.</div>
-      <DataTable<PayoutView>
-        rows={data ?? []}
-        rowKey={(row) => row.id}
-        columns={[
-          {
-            label: "Payout",
-            render: (row) => (
-              <div className="admin-cell-title">
-                <strong>{row.payout_reference}</strong>
-                <span>{shortId(row.id)}</span>
-              </div>
-            ),
-          },
-          { label: "Organizer", render: (row) => row.organizerName },
-          { label: "Amount", render: (row) => formatMoney(row.amount, row.currency) },
-          {
-            label: "Status",
-            render: (row) => (
-              <StatusSelect
-                value={row.status}
-                options={PAYOUT_STATUSES}
-                onChange={(next) =>
-                  api
-                    .updatePayoutStatus(row.id, next as Enums["payout_status"])
-                    .then(reload)
-                    .catch((caught: unknown) => window.alert(messageOf(caught)))
-                }
-              />
-            ),
-          },
-          { label: "Requested", render: (row) => formatDate(row.requested_at) },
-        ]}
-      />
-    </SectionState>
-  );
-}
-
 function SupportSection() {
   const { data, error, loading, reload } = useAdminFetch(api.fetchSupport);
   const [editing, setEditing] = useState<SupportView | null>(null);
@@ -1099,14 +812,7 @@ const SHOWCASE_FIELDS: EditField[] = [
   { key: "status_label", label: "Status label", hint: "Example: Selling fast, Live now, Past event." },
   { key: "date_label", label: "Display date", hint: "Example: August 14-16, 2026." },
   { key: "date_value", label: "Sort date", type: "date" },
-  {
-    key: "organizer_id",
-    label: "Operational event organizer",
-    type: "select",
-    options: [{ value: "", label: "Choose an approved organizer" }],
-    full: true,
-    hint: "New showcase events require an active, approved organizer.",
-  },
+  { key: "organizer_name", label: "Organizer name", required: true, full: true },
   {
     key: "starts_at",
     label: "Operational start date and time",
@@ -1215,7 +921,7 @@ function showcaseInitial(row: ShowcaseRecord | null): Record<string, unknown> {
     status_label: row?.status_label ?? "On sale now",
     date_label: row?.date_label ?? "",
     date_value: row?.date_value ?? new Date().toISOString().slice(0, 10),
-    organizer_id: row?.organizer_id ?? "",
+    organizer_name: row?.organizer_name ?? "",
     starts_at: toLocalDateTime(row?.starts_at),
     ends_at: toLocalDateTime(row?.ends_at),
     capacity: row?.capacity ?? "",
@@ -1260,17 +966,15 @@ function showcaseValues(
     const parsed = Number(values[key]);
     return Number.isFinite(parsed) ? parsed : 0;
   };
-  const operationalValues = [
-    values.organizer_id,
-    values.starts_at,
-    values.ends_at,
-    values.capacity,
-  ];
+  const operationalValues = [values.starts_at, values.ends_at, values.capacity];
   const hasOperationalDetails = operationalValues.some((value) => value.trim().length > 0);
   const hasCompleteOperationalDetails = operationalValues.every((value) => value.trim().length > 0);
+  if (!values.organizer_name.trim()) {
+    throw new Error("Enter the organizer name.");
+  }
   if ((requireOperationalDetails || hasOperationalDetails) && !hasCompleteOperationalDetails) {
     throw new Error(
-      "Provide an approved organizer, start and end date/time, and a ticket capacity to create the catalog event.",
+      "Provide start and end date/time and a ticket capacity to create the catalog event.",
     );
   }
   const startsAt = hasOperationalDetails ? new Date(values.starts_at) : null;
@@ -1296,7 +1000,7 @@ function showcaseValues(
     status_label: values.status_label.trim() || "On sale now",
     date_label: values.date_label.trim(),
     date_value: values.date_value,
-    organizer_id: hasOperationalDetails ? values.organizer_id : null,
+    organizer_name: values.organizer_name.trim(),
     starts_at: startsAt?.toISOString() ?? null,
     ends_at: endsAt?.toISOString() ?? null,
     capacity,
@@ -1319,49 +1023,24 @@ function showcaseValues(
 
 function ShowcaseSection() {
   const { data, error, loading, reload } = useAdminFetch(api.fetchShowcase);
-  const {
-    data: eligibleOrganizers,
-    error: organizerError,
-    loading: organizersLoading,
-    reload: reloadOrganizers,
-  } = useAdminFetch(api.fetchEligibleOrganizers);
   const [filter, setFilter] = useState<ShowcaseFilter>("all");
   const [editing, setEditing] = useState<ShowcaseRecord | null>(null);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [actionError, setActionError] = useState("");
-  const [invitingOrganizer, setInvitingOrganizer] = useState(false);
-  const [inviteNotice, setInviteNotice] = useState("");
   const showcaseFields = useMemo(
     () =>
       SHOWCASE_FIELDS
         .filter((field) => field.key !== "ticket_design_clear" || Boolean(editing?.ticket_design_image_path))
         .map((field) =>
-        field.key === "organizer_id"
-          ? {
-              ...field,
-              options: [
-                { value: "", label: "Choose an approved organizer" },
-                ...(eligibleOrganizers ?? []).map((organizer) => ({
-                  value: organizer.id,
-                  label: organizer.name,
-                })),
-                { value: INVITE_ORGANIZER_OPTION, label: "Invite a new organizer…" },
-              ],
-              hint: organizerError
-                ? `Could not load organizers: ${organizerError}`
-                : organizersLoading
-                  ? "Loading active, approved organizers…"
-                  : "New showcase events require an active, approved organizer.",
-            }
-          : field.key === "ticket_design_file" && editing?.ticket_design_image_path
+        field.key === "ticket_design_file" && editing?.ticket_design_image_path
             ? {
                 ...field,
                 hint: "Current artwork is set. Upload a replacement, or select Remove current ticket artwork.",
               }
             : field,
         ),
-    [eligibleOrganizers, organizerError, organizersLoading, editing],
+    [editing],
   );
 
   const rows = useMemo(
@@ -1474,16 +1153,7 @@ function ShowcaseSection() {
         create a draft, pending catalog event and one General Admission ticket type; existing
         showcase-only events can be linked by adding the operational details.
       </div>
-      {organizerError && (
-        <p className="admin-inline-error" role="alert">
-          Could not load eligible organizers: {organizerError}{" "}
-          <button className="admin-button admin-button-quiet" type="button" onClick={reloadOrganizers}>
-            Retry
-          </button>
-        </p>
-      )}
       {actionError && <p className="admin-inline-error" role="alert">{actionError}</p>}
-      {inviteNotice && <p className="admin-readonly-note" role="status">{inviteNotice}</p>}
 
       <section className="admin-section-block">
         <div className="admin-section-heading">
@@ -1497,7 +1167,6 @@ function ShowcaseSection() {
             onClick={() => {
               setEditing(null);
               setCreating(true);
-              setInviteNotice("");
             }}
           >
             Add event
@@ -1621,35 +1290,14 @@ function ShowcaseSection() {
             setEditing(null);
             setCreating(false);
           }}
-          onInviteOrganizer={() => setInvitingOrganizer(true)}
           onSave={save}
-        />
-      )}
-      {invitingOrganizer && (
-        <EditModal
-          title="Invite a new organizer"
-          fields={[
-            { key: "organizer_name", label: "Organizer name", required: true },
-            { key: "email", label: "Email address", type: "email", required: true },
-          ]}
-          initial={{ organizer_name: "", email: "" }}
-          saveLabel="Send invitation"
-          onClose={() => setInvitingOrganizer(false)}
-          onSave={async (values) => {
-            await api.inviteOrganizer(values.organizer_name, values.email);
-            setInviteNotice(
-              "Invitation email sent. After they sign up, approve the organizer in the Organizers panel before assigning events.",
-            );
-            reloadOrganizers();
-            setInvitingOrganizer(false);
-          }}
         />
       )}
     </SectionState>
   );
 }
 
-const ROLES: Enums["app_role"][] = ["customer", "staff", "organizer", "admin"];
+const ROLES: Enums["app_role"][] = ["customer", "staff", "admin"];
 
 function StaffSection() {
   const { data, error, loading, reload } = useAdminFetch<StaffData>(api.fetchStaff);
@@ -1959,10 +1607,8 @@ function AdminPanel() {
           {activeSection === "overview" && <OverviewSection />}
           {activeSection === "events" && <EventsSection />}
           {activeSection === "customers" && <CustomersSection />}
-          {activeSection === "organizers" && <OrganizersSection />}
           {activeSection === "orders" && <OrdersSection />}
           {activeSection === "payments" && <PaymentsSection />}
-          {activeSection === "payouts" && <PayoutsSection />}
           {activeSection === "support" && <SupportSection />}
           {activeSection === "activity" && <ActivitySection />}
           {activeSection === "staff" && <StaffSection />}

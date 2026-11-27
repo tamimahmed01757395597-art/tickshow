@@ -459,10 +459,6 @@ function AuthPage({ mode }: { mode: AuthMode }) {
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const destination = isStaff ? "admin" : requestedDestination();
-  const query = window.location.hash.split("?")[1] ?? "";
-  const organizerInviteToken = isStaff
-    ? ""
-    : new URLSearchParams(query).get("organizer_invite") ?? "";
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -497,15 +493,10 @@ function AuthPage({ mode }: { mode: AuthMode }) {
         password,
         fullName,
         inviteToken: isStaff ? inviteToken : undefined,
-        organizerInviteToken: !isStaff ? organizerInviteToken : undefined,
         returnTo: destination,
       });
       if (result.needsConfirmation) {
-        setNotice(
-          organizerInviteToken
-            ? "Account created. Confirm your email; your organizer profile will then be reviewed for approval."
-            : "Account created. Check your email and follow the confirmation link to continue.",
-        );
+        setNotice("Account created. Check your email and follow the confirmation link to continue.");
         return;
       }
       const roles = await refresh();
@@ -549,9 +540,7 @@ function AuthPage({ mode }: { mode: AuthMode }) {
                   : "Use the single-use invitation sent by an administrator."
                 : isLogin
                   ? "Log in to manage your bookings and tickets."
-                  : organizerInviteToken
-                    ? "Complete sign-up with the email address that received your organizer invitation."
-                    : "Create an account to book tickets and manage your bookings."}
+                  : "Create an account to book tickets and manage your bookings."}
             </p>
             <form className="auth-form" onSubmit={handleSubmit}>
               {!isLogin && (

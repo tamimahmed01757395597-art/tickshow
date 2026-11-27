@@ -104,126 +104,6 @@ export type Database = {
           created_at?: string;
         }
       >;
-      organizers: Table<
-        {
-          id: string;
-          owner_id: string;
-          slug: string;
-          name: string;
-          description: string | null;
-          logo_url: string | null;
-          contact_email: string | null;
-          contact_phone: string | null;
-          website_url: string | null;
-          address: string | null;
-          status: Database["public"]["Enums"]["organizer_status"];
-          approval_status: Database["public"]["Enums"]["approval_status"];
-          approved_at: string | null;
-          created_at: string;
-          updated_at: string;
-        },
-        {
-          id?: string;
-          owner_id: string;
-          slug: string;
-          name: string;
-          description?: string | null;
-          logo_url?: string | null;
-          contact_email?: string | null;
-          contact_phone?: string | null;
-          website_url?: string | null;
-          address?: string | null;
-          status?: Database["public"]["Enums"]["organizer_status"];
-          approval_status?: Database["public"]["Enums"]["approval_status"];
-          approved_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        },
-        {
-          id?: string;
-          owner_id?: string;
-          slug?: string;
-          name?: string;
-          description?: string | null;
-          logo_url?: string | null;
-          contact_email?: string | null;
-          contact_phone?: string | null;
-          website_url?: string | null;
-          address?: string | null;
-          status?: Database["public"]["Enums"]["organizer_status"];
-          approval_status?: Database["public"]["Enums"]["approval_status"];
-          approved_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        }
-      >;
-      organizer_staff: Table<
-        {
-          id: string;
-          organizer_id: string;
-          user_id: string;
-          role: Database["public"]["Enums"]["organizer_staff_role"];
-          status: Database["public"]["Enums"]["account_status"];
-          invited_by: string | null;
-          created_at: string;
-          updated_at: string;
-        },
-        {
-          id?: string;
-          organizer_id: string;
-          user_id: string;
-          role?: Database["public"]["Enums"]["organizer_staff_role"];
-          status?: Database["public"]["Enums"]["account_status"];
-          invited_by?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        },
-        {
-          id?: string;
-          organizer_id?: string;
-          user_id?: string;
-          role?: Database["public"]["Enums"]["organizer_staff_role"];
-          status?: Database["public"]["Enums"]["account_status"];
-          invited_by?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        }
-      >;
-      organizer_invitations: Table<
-        {
-          id: string;
-          email: string;
-          organizer_name: string;
-          organizer_slug: string;
-          token_hash: string;
-          invited_by: string | null;
-          expires_at: string;
-          used_at: string | null;
-          created_at: string;
-        },
-        {
-          id?: string;
-          email: string;
-          organizer_name: string;
-          organizer_slug: string;
-          token_hash: string;
-          invited_by?: string | null;
-          expires_at: string;
-          used_at?: string | null;
-          created_at?: string;
-        },
-        {
-          id?: string;
-          email?: string;
-          organizer_name?: string;
-          organizer_slug?: string;
-          token_hash?: string;
-          invited_by?: string | null;
-          expires_at?: string;
-          used_at?: string | null;
-          created_at?: string;
-        }
-      >;
       event_categories: Table<
         {
           id: string;
@@ -262,7 +142,7 @@ export type Database = {
       events: Table<
         {
           id: string;
-          organizer_id: string;
+          organizer_name: string;
           category_id: string;
           created_by: string | null;
           title: string;
@@ -288,7 +168,7 @@ export type Database = {
         },
         {
           id?: string;
-          organizer_id: string;
+          organizer_name: string;
           category_id: string;
           created_by?: string | null;
           title: string;
@@ -314,7 +194,7 @@ export type Database = {
         },
         {
           id?: string;
-          organizer_id?: string;
+          organizer_name?: string;
           category_id?: string;
           created_by?: string | null;
           title?: string;
@@ -823,100 +703,6 @@ export type Database = {
           updated_at?: string;
         }
       >;
-      organizer_payouts: Table<
-        {
-          id: string;
-          organizer_id: string;
-          payout_reference: string;
-          amount: number;
-          currency: string;
-          status: Database["public"]["Enums"]["payout_status"];
-          requested_at: string;
-          paid_at: string | null;
-          created_at: string;
-          updated_at: string;
-        },
-        {
-          id?: string;
-          organizer_id: string;
-          payout_reference?: string;
-          amount: number;
-          currency?: string;
-          status?: Database["public"]["Enums"]["payout_status"];
-          requested_at?: string;
-          paid_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        },
-        {
-          id?: string;
-          organizer_id?: string;
-          payout_reference?: string;
-          amount?: number;
-          currency?: string;
-          status?: Database["public"]["Enums"]["payout_status"];
-          requested_at?: string;
-          paid_at?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        }
-      >;
-      organizer_commissions: Table<
-        {
-          id: string;
-          organizer_id: string;
-          event_id: string | null;
-          order_id: string | null;
-          payout_id: string | null;
-          commission_rate: number;
-          gross_amount: number;
-          commission_amount: number;
-          net_amount: number;
-          currency: string;
-          status: Database["public"]["Enums"]["commission_status"];
-          period_start: string | null;
-          period_end: string | null;
-          calculated_at: string;
-          created_at: string;
-          updated_at: string;
-        },
-        {
-          id?: string;
-          organizer_id: string;
-          event_id?: string | null;
-          order_id?: string | null;
-          payout_id?: string | null;
-          commission_rate: number;
-          gross_amount: number;
-          commission_amount: number;
-          net_amount: number;
-          currency?: string;
-          status?: Database["public"]["Enums"]["commission_status"];
-          period_start?: string | null;
-          period_end?: string | null;
-          calculated_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        },
-        {
-          id?: string;
-          organizer_id?: string;
-          event_id?: string | null;
-          order_id?: string | null;
-          payout_id?: string | null;
-          commission_rate?: number;
-          gross_amount?: number;
-          commission_amount?: number;
-          net_amount?: number;
-          currency?: string;
-          status?: Database["public"]["Enums"]["commission_status"];
-          period_start?: string | null;
-          period_end?: string | null;
-          calculated_at?: string;
-          created_at?: string;
-          updated_at?: string;
-        }
-      >;
       notifications: Table<
         {
           id: string;
@@ -1026,7 +812,7 @@ export type Database = {
         {
           id: string;
           actor_id: string | null;
-          actor_role: Database["public"]["Enums"]["app_role"] | null;
+          actor_role: string | null;
           action: string;
           entity_type: string;
           entity_id: string | null;
@@ -1037,7 +823,7 @@ export type Database = {
         {
           id?: string;
           actor_id?: string | null;
-          actor_role?: Database["public"]["Enums"]["app_role"] | null;
+          actor_role?: string | null;
           action: string;
           entity_type: string;
           entity_id?: string | null;
@@ -1048,7 +834,7 @@ export type Database = {
         {
           id?: string;
           actor_id?: string | null;
-          actor_role?: Database["public"]["Enums"]["app_role"] | null;
+          actor_role?: string | null;
           action?: string;
           entity_type?: string;
           entity_id?: string | null;
@@ -1061,7 +847,7 @@ export type Database = {
         {
           id: string;
           normalized_event_id: string | null;
-          organizer_id: string | null;
+          organizer_name: string | null;
           starts_at: string | null;
           ends_at: string | null;
           capacity: number | null;
@@ -1094,7 +880,7 @@ export type Database = {
         {
           id?: string;
           normalized_event_id?: string | null;
-          organizer_id?: string | null;
+          organizer_name?: string | null;
           starts_at?: string | null;
           ends_at?: string | null;
           capacity?: number | null;
@@ -1127,7 +913,7 @@ export type Database = {
         {
           id?: string;
           normalized_event_id?: string | null;
-          organizer_id?: string | null;
+          organizer_name?: string | null;
           starts_at?: string | null;
           ends_at?: string | null;
           capacity?: number | null;
@@ -1319,9 +1105,6 @@ export type Database = {
         Args: { p_role: Database["public"]["Enums"]["app_role"] };
         Returns: boolean;
       };
-      owns_organizer: { Args: { p_organizer_id: string }; Returns: boolean };
-      owns_active_organizer: { Args: { p_organizer_id: string }; Returns: boolean };
-      can_manage_organizer: { Args: { p_organizer_id: string }; Returns: boolean };
       can_access_event: { Args: { p_event_id: string }; Returns: boolean };
       can_manage_event: { Args: { p_event_id: string }; Returns: boolean };
       can_checkin_event: { Args: { p_event_id: string }; Returns: boolean };
@@ -1336,28 +1119,6 @@ export type Database = {
       };
       accept_admin_invitation: {
         Args: { p_user_id: string; p_token_hash: string };
-        Returns: boolean;
-      };
-      create_organizer_invitation: {
-        Args: {
-          p_email: string;
-          p_organizer_name: string;
-          p_organizer_slug: string;
-          p_token_hash: string;
-          p_expires_in?: string;
-        };
-        Returns: Database["public"]["Tables"]["organizer_invitations"]["Row"] | null;
-      };
-      cancel_organizer_invitation: {
-        Args: { p_invitation_id: string };
-        Returns: boolean;
-      };
-      accept_organizer_invitation: {
-        Args: { p_user_id: string; p_token_hash: string };
-        Returns: boolean;
-      };
-      delete_organizer: {
-        Args: { p_organizer_id: string };
         Returns: boolean;
       };
       storage_path_uuid: { Args: { p_name: string }; Returns: string | null };
@@ -1420,10 +1181,9 @@ export type Database = {
       delete_own_account: { Args: Record<string, never>; Returns: undefined };
     };
     Enums: {
-      app_role: "admin" | "organizer" | "staff" | "customer";
+      app_role: "admin" | "staff" | "customer";
       account_status: "active" | "suspended";
       approval_status: "pending" | "approved" | "rejected";
-      organizer_status: "pending" | "active" | "suspended";
       event_status: "draft" | "pending" | "published" | "rejected" | "cancelled" | "completed";
       ticket_type_status: "draft" | "active" | "paused" | "archived";
       inventory_reservation_status: "pending" | "confirmed" | "released" | "expired" | "cancelled";
@@ -1431,15 +1191,12 @@ export type Database = {
       payment_status: "pending" | "processing" | "succeeded" | "failed" | "cancelled" | "refunded" | "partially_refunded";
       payment_method: "card" | "bkash" | "nagad" | "bank_transfer" | "other";
       refund_status: "pending" | "processing" | "succeeded" | "failed";
-      payout_status: "pending" | "in_transit" | "paid" | "failed" | "cancelled";
-      commission_status: "pending" | "settled" | "waived";
       ticket_status: "valid" | "used" | "cancelled" | "refunded" | "expired";
       checkin_status: "not_checked_in" | "checked_in" | "void";
       checkin_result: "success" | "denied" | "reversed";
-      organizer_staff_role: "manager" | "checkin" | "sales" | "support" | "analyst";
       event_staff_permission: "view" | "checkin" | "manage_orders";
       review_status: "pending" | "approved" | "rejected";
-      notification_type: "order_created" | "payment_succeeded" | "payment_failed" | "ticket_issued" | "event_published" | "event_cancelled" | "refund_issued" | "payout_paid" | "system";
+      notification_type: "order_created" | "payment_succeeded" | "payment_failed" | "ticket_issued" | "event_published" | "event_cancelled" | "refund_issued" | "system";
       storefront_event_group: "past" | "upcoming" | "ongoing";
     };
     CompositeTypes: Record<string, never>;

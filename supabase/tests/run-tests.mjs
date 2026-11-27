@@ -10,21 +10,18 @@ const migrationsDir = path.join(root, "supabase", "migrations");
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const USER = {
   admin: id(1),
-  orgA: id(2),
-  orgB: id(3),
+  userA: id(2),
+  userB: id(3),
   staff: id(4),
   customerA: id(5),
   customerB: id(6),
 };
-const ORG = { A: id(101), B: id(102) };
 const EVENT = { publicA: id(201), draftA: id(202), publicB: id(203), draftB: id(204) };
 const TICKET_TYPE = id(301);
 const ORDER = { a: id(401), b: id(402) };
 const ORDER_ITEM = { a: id(411), b: id(412) };
 const PAYMENT = id(501);
 const TICKET = { a: id(601), b: id(602) };
-const PAYOUT = id(701);
-const COMMISSION = id(702);
 const STORAGE_OBJECT = { event: id(801), ticketFile: id(802), avatar: id(803) };
 
 const db = new PGlite();
@@ -195,8 +192,8 @@ async function seedTestContext() {
   await asService(async () => {
     const users = [
       [USER.admin, "admin@tickshow.test"],
-      [USER.orgA, "organizer-a@tickshow.test"],
-      [USER.orgB, "organizer-b@tickshow.test"],
+      [USER.userA, "user-a@tickshow.test"],
+      [USER.userB, "user-b@tickshow.test"],
       [USER.staff, "staff@tickshow.test"],
       [USER.customerA, "customer-a@tickshow.test"],
       [USER.customerB, "customer-b@tickshow.test"],
@@ -217,8 +214,8 @@ async function seedTestContext() {
     };
     for (const [userId, roleName] of [
       [USER.admin, "admin"],
-      [USER.orgA, "organizer"],
-      [USER.orgB, "organizer"],
+      [USER.userA, "customer"],
+      [USER.userB, "customer"],
       [USER.staff, "staff"],
       [USER.customerA, "customer"],
       [USER.customerB, "customer"],
@@ -230,53 +227,36 @@ async function seedTestContext() {
       );
     }
 
-    for (const [orgId, owner, slug, name] of [
-      [ORG.A, USER.orgA, "org-alpha", "Organizer Alpha"],
-      [ORG.B, USER.orgB, "org-beta", "Organizer Beta"],
-    ]) {
-      await q(
-        `INSERT INTO public.organizers (id, owner_id, slug, name, status, approval_status, approved_at)
-         VALUES ($1, $2, $3, $4, 'active', 'approved', now())`,
-        [orgId, owner, slug, name],
-      );
-    }
-
-    await q(
-      `INSERT INTO public.organizer_staff (organizer_id, user_id, role, status)
-       VALUES ($1, $2, 'checkin', 'active')`,
-      [ORG.A, USER.staff],
-    );
-
     const categoryResult = await q(
       "SELECT id FROM public.event_categories WHERE slug = 'concerts-music'",
     );
     const categoryId = categoryResult.rows[0].id;
 
     await q(
-      `INSERT INTO public.events (id, organizer_id, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status, approved_at, published_at)
-       VALUES ($1, $2, $3, $4, 'Public Alpha', 'public-alpha', now() + interval '1 day', now() + interval '2 days', 'published', 'approved', now(), now())`,
-      [EVENT.publicA, ORG.A, categoryId, USER.orgA],
+      `INSERT INTO public.events (id, organizer_name, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status, approved_at, published_at)
+       VALUES ($1, 'Organizer Alpha', $2, $3, 'Public Alpha', 'public-alpha', now() + interval '1 day', now() + interval '2 days', 'published', 'approved', now(), now())`,
+      [EVENT.publicA, categoryId, USER.userA],
     );
     await q(
-      `INSERT INTO public.events (id, organizer_id, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status)
-       VALUES ($1, $2, $3, $4, 'Draft Alpha', 'draft-alpha', now() + interval '3 day', now() + interval '4 days', 'draft', 'pending')`,
-      [EVENT.draftA, ORG.A, categoryId, USER.orgA],
+      `INSERT INTO public.events (id, organizer_name, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status)
+       VALUES ($1, 'Organizer Alpha', $2, $3, 'Draft Alpha', 'draft-alpha', now() + interval '3 day', now() + interval '4 days', 'draft', 'pending')`,
+      [EVENT.draftA, categoryId, USER.userA],
     );
     await q(
-      `INSERT INTO public.events (id, organizer_id, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status, approved_at, published_at)
-       VALUES ($1, $2, $3, $4, 'Public Beta', 'public-beta', now() + interval '5 day', now() + interval '6 days', 'published', 'approved', now(), now())`,
-      [EVENT.publicB, ORG.B, categoryId, USER.orgB],
+      `INSERT INTO public.events (id, organizer_name, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status, approved_at, published_at)
+       VALUES ($1, 'Organizer Beta', $2, $3, 'Public Beta', 'public-beta', now() + interval '5 day', now() + interval '6 days', 'published', 'approved', now(), now())`,
+      [EVENT.publicB, categoryId, USER.userB],
     );
     await q(
-      `INSERT INTO public.events (id, organizer_id, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status)
-       VALUES ($1, $2, $3, $4, 'Draft Beta', 'draft-beta', now() + interval '7 day', now() + interval '8 days', 'draft', 'pending')`,
-      [EVENT.draftB, ORG.B, categoryId, USER.orgB],
+      `INSERT INTO public.events (id, organizer_name, category_id, created_by, title, slug, starts_at, ends_at, status, approval_status)
+       VALUES ($1, 'Organizer Beta', $2, $3, 'Draft Beta', 'draft-beta', now() + interval '7 day', now() + interval '8 days', 'draft', 'pending')`,
+      [EVENT.draftB, categoryId, USER.userB],
     );
 
     await q(
       `INSERT INTO public.event_staff (event_id, user_id, permission, status, assigned_by)
        VALUES ($1, $2, 'checkin', 'active', $3)`,
-      [EVENT.publicA, USER.staff, USER.orgA],
+      [EVENT.publicA, USER.staff, USER.admin],
     );
 
     await q(
@@ -345,17 +325,6 @@ async function seedTestContext() {
       `INSERT INTO public.platform_settings (key, value, is_public) VALUES ('internal.rate', '"secret"'::jsonb, false)`,
     );
 
-    await q(
-      `INSERT INTO public.organizer_payouts (id, organizer_id, amount, currency)
-       VALUES ($1, $2, 1000, 'BDT')`,
-      [PAYOUT, ORG.A],
-    );
-    await q(
-      `INSERT INTO public.organizer_commissions (id, organizer_id, event_id, order_id, payout_id, commission_rate, gross_amount, commission_amount, net_amount, currency)
-       VALUES ($1, $2, $3, $4, $5, 0.1000, 2400, 240, 2160, 'BDT')`,
-      [COMMISSION, ORG.A, EVENT.publicA, ORDER.a, PAYOUT],
-    );
-
     await db.exec(`
       INSERT INTO storage.objects (id, bucket_id, name)
       VALUES ('${STORAGE_OBJECT.event}', 'event-images', '${EVENT.publicA}/cover.jpg');
@@ -373,13 +342,27 @@ async function testSchema() {
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
   );
-  ok("all application tables created", tableCount === 30, `found ${tableCount}`);
+  ok("all application tables created", tableCount === 25, `found ${tableCount}`);
 
   const rlsCount = await count(
     `SELECT count(*) FROM pg_tables
      WHERE schemaname = 'public' AND rowsecurity = true`,
   );
-  ok("RLS enabled on all application tables", rlsCount === 30, `found ${rlsCount}`);
+  ok("RLS enabled on all application tables", rlsCount === 25, `found ${rlsCount}`);
+  const removedTables = await count(
+    `SELECT count(*) FROM information_schema.tables
+     WHERE table_schema = 'public'
+       AND table_name IN (
+         'organizers', 'organizer_staff', 'organizer_invitations',
+         'organizer_payouts', 'organizer_commissions'
+       )`,
+  );
+  ok("organizer and payout tables are removed", removedTables === 0);
+  const organizerColumns = await count(
+    `SELECT count(*) FROM information_schema.columns
+     WHERE table_schema = 'public' AND column_name = 'organizer_id'`,
+  );
+  ok("event records no longer depend on organizer IDs", organizerColumns === 0);
 
   await expectError(
     "negative ticket price rejected",
@@ -389,17 +372,15 @@ async function testSchema() {
   );
   await expectError(
     "event end before start rejected",
-    `INSERT INTO public.events (organizer_id, category_id, title, slug, starts_at, ends_at)
-     SELECT $1, id, 'Bad window', 'bad-window', now(), now() - interval '1 day'
+    `INSERT INTO public.events (organizer_name, category_id, title, slug, starts_at, ends_at)
+     SELECT 'Test Organizer', id, 'Bad window', 'bad-window', now(), now() - interval '1 day'
      FROM public.event_categories WHERE slug = 'sports'`,
-    [ORG.A],
   );
   await expectError(
     "duplicate event slug rejected",
-    `INSERT INTO public.events (organizer_id, category_id, title, slug, starts_at, ends_at)
-     SELECT $1, id, 'Duplicate slug', 'public-alpha', now(), now() + interval '1 day'
+    `INSERT INTO public.events (organizer_name, category_id, title, slug, starts_at, ends_at)
+     SELECT 'Test Organizer', id, 'Duplicate slug', 'public-alpha', now(), now() + interval '1 day'
      FROM public.event_categories WHERE slug = 'sports'`,
-    [ORG.A],
   );
   await expectError(
     "duplicate payment intent rejected",
@@ -501,42 +482,38 @@ async function testRls() {
     ok("anon cannot read audit logs", audit === 0);
   });
 
-  await asAuth(USER.orgA, "organizer-a@tickshow.test", async () => {
+  await asAuth(USER.userA, "user-a@tickshow.test", async () => {
     const visible = await ids("SELECT id FROM public.events");
     ok(
-      "organizer A sees own private events but not organizer B drafts",
-      visible.includes(EVENT.publicA) &&
-        visible.includes(EVENT.draftA) &&
-        !visible.includes(EVENT.draftB),
+      "regular user cannot see private event drafts",
+      visible.includes(EVENT.publicA) && !visible.includes(EVENT.draftA) && !visible.includes(EVENT.draftB),
       JSON.stringify(visible),
     );
     const orders = await ids("SELECT id FROM public.orders");
-    ok("organizer A sees only own-event orders", orders.length === 1 && orders[0] === ORDER.a, JSON.stringify(orders));
-    const commissions = await count("SELECT count(*) FROM public.organizer_commissions");
-    ok("organizer A sees own commissions", commissions === 1);
+    ok("regular user cannot read other customers' orders", orders.length === 0, JSON.stringify(orders));
     await expectError(
-      "organizer cannot self-approve event",
-      "UPDATE public.events SET approval_status = 'approved' WHERE id = $1",
-      [EVENT.draftA],
+      "regular user cannot create catalog events",
+      `INSERT INTO public.events (organizer_name, category_id, title, slug, starts_at, ends_at)
+       SELECT 'Unauthorized', id, 'Unauthorized event', 'unauthorized-event', now(), now() + interval '1 day'
+       FROM public.event_categories WHERE slug = 'sports'`,
     );
-    await expectError(
-      "organizer cannot publish unapproved event",
-      "UPDATE public.events SET status = 'published' WHERE id = $1",
-      [EVENT.draftA],
+    await q("DELETE FROM public.events WHERE id = $1", [EVENT.publicA]);
+    const publicEventRemains = await count(
+      "SELECT count(*) FROM public.events WHERE id = $1",
+      [EVENT.publicA],
     );
+    ok("regular user cannot delete catalog events", publicEventRemains === 1);
   });
 
-  await asAuth(USER.orgB, "organizer-b@tickshow.test", async () => {
+  await asAuth(USER.userB, "user-b@tickshow.test", async () => {
     const events = await ids("SELECT id FROM public.events");
     ok(
-      "organizer B cannot see organizer A private events",
-      events.includes(EVENT.draftB) && !events.includes(EVENT.draftA),
+      "regular users cannot see unpublished events",
+      events.length === 2 && !events.includes(EVENT.draftA) && !events.includes(EVENT.draftB),
       JSON.stringify(events),
     );
-    const commissions = await count("SELECT count(*) FROM public.organizer_commissions");
-    ok("organizer B cannot see organizer A commissions", commissions === 0);
     await expectError(
-      "organizer B cannot write organizer A event image",
+      "non-admin cannot write event images",
       `INSERT INTO storage.objects (bucket_id, name) VALUES ('event-images', $1)`,
       [`${EVENT.publicA}/intruder.jpg`],
     );
@@ -571,11 +548,6 @@ async function testRls() {
       [USER.customerA, EVENT.publicA],
     );
     await expectError(
-      "customer cannot create an organizer without the organizer role",
-      `INSERT INTO public.organizers (owner_id, slug, name) VALUES ($1, 'customer-org', 'Customer Org')`,
-      [USER.customerA],
-    );
-    await expectError(
       "customer cannot insert a role assignment",
       `INSERT INTO public.user_roles (user_id, role_id) SELECT $1, id FROM public.roles WHERE name = 'admin'`,
       [USER.customerA],
@@ -583,11 +555,6 @@ async function testRls() {
     await expectError(
       "customer cannot self-assign admin via secure function",
       "SELECT public.assign_user_role($1, 'admin')",
-      [USER.customerA],
-    );
-    await expectError(
-      "customer cannot self-assign organizer via secure function",
-      "SELECT public.assign_user_role($1, 'organizer')",
       [USER.customerA],
     );
     await expectError(
@@ -626,11 +593,6 @@ async function testRls() {
     ok("admin sees all events", events.length === 4, JSON.stringify(events));
     const audit = await count("SELECT count(*) FROM public.audit_logs");
     ok("admin can read audit logs", audit === 0);
-    await expectError(
-      "admin cannot self-assign organizer role",
-      "SELECT public.assign_user_role($1, 'organizer')",
-      [USER.admin],
-    );
     const assigned = await q("SELECT public.assign_user_role($1, 'staff') AS role_id", [USER.customerB]);
     ok("admin can assign a role to another user", Boolean(assigned.rows[0]?.role_id));
     await q("SELECT public.remove_user_role($1, 'staff')", [USER.customerB]);
@@ -722,137 +684,15 @@ async function testAdminInvitations() {
   });
 }
 
-async function testOrganizerInvitations() {
-  console.log("\n[3b] Organizer invitations");
-  const invitee = id(8);
-  const inviteHash = "f".repeat(64);
-
-  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
-    await expectError(
-      "customer cannot create an organizer invitation",
-      "SELECT public.create_organizer_invitation($1, $2, $3, $4)",
-      ["new-organizer@tickshow.test", "New Organizer", "new-organizer-test", inviteHash],
-    );
-  });
-
-  await asAuth(USER.admin, "admin@tickshow.test", async () => {
-    await q(
-      `SELECT public.create_organizer_invitation($1, $2, $3, $4, interval '7 days')`,
-      ["invitee@tickshow.test", "New Organizer", "new-organizer-test", inviteHash],
-    );
-    const visible = await count("SELECT count(*) FROM public.organizer_invitations");
-    ok("admin can create organizer invitations", visible === 1);
-  });
-
-  await asService(async () => {
-    await q(
-      `INSERT INTO auth.users (id, email, raw_user_meta_data)
-       VALUES ($1, 'invitee@tickshow.test', '{"full_name":"New Organizer"}'::jsonb)`,
-      [invitee],
-    );
-  });
-
-  await asAnon(async () => {
-    await expectError(
-      "anonymous users cannot read organizer invitations",
-      "SELECT id FROM public.organizer_invitations",
-    );
-    await expectError(
-      "organizer invitation rejects a different account email",
-      "SELECT public.accept_organizer_invitation($1, $2)",
-      [USER.customerA, inviteHash],
-    );
-  });
-
-  await asAuth(invitee, "invitee@tickshow.test", async () => {
-    const accepted = await q(
-      "SELECT public.accept_organizer_invitation($1, $2) AS accepted",
-      [invitee, inviteHash],
-    );
-    ok("valid organizer invitation is accepted", accepted.rows[0]?.accepted === true);
-    await expectError(
-      "organizer invitation cannot be reused",
-      "SELECT public.accept_organizer_invitation($1, $2)",
-      [invitee, inviteHash],
-    );
-  });
-
-  await asService(async () => {
-    const organizer = await q(
-      `SELECT name, slug, contact_email, status, approval_status
-       FROM public.organizers WHERE owner_id = $1`,
-      [invitee],
-    );
-    const roles = await ids(
-      `SELECT r.name AS id FROM public.user_roles ur
-       JOIN public.roles r ON r.id = ur.role_id WHERE ur.user_id = $1`,
-      [invitee],
-    );
-    ok(
-      "accepted invitation creates an organizer account pending admin approval",
-      organizer.rows[0]?.name === "New Organizer" &&
-        organizer.rows[0]?.slug === "new-organizer-test" &&
-        organizer.rows[0]?.contact_email === "invitee@tickshow.test" &&
-        organizer.rows[0]?.status === "pending" &&
-        organizer.rows[0]?.approval_status === "pending" &&
-        roles.includes("organizer"),
-      JSON.stringify({ organizer: organizer.rows[0], roles }),
-    );
-  });
-}
-
-async function testOrganizerDeletion() {
-  console.log("\n[3c] Guarded organizer deletion");
-  let organizerId = "";
-
-  await asService(async () => {
-    const organizer = await q("SELECT id FROM public.organizers WHERE owner_id = $1", [id(8)]);
-    organizerId = organizer.rows[0]?.id ?? "";
-    ok("accepted organizer exists for deletion tests", Boolean(organizerId));
-  });
-
-  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
-    await expectError(
-      "customer cannot delete an organizer",
-      "SELECT public.delete_organizer($1)",
-      [organizerId],
-    );
-  });
-
-  await asAuth(USER.admin, "admin@tickshow.test", async () => {
-    await expectError(
-      "organizer with linked operational records cannot be deleted",
-      "SELECT public.delete_organizer($1)",
-      [ORG.A],
-    );
-    const result = await q("SELECT public.delete_organizer($1) AS deleted", [organizerId]);
-    ok("admin can delete an organizer without linked records", result.rows[0]?.deleted === true);
-  });
-
-  await asService(async () => {
-    const organizerCount = await count("SELECT count(*) FROM public.organizers WHERE id = $1", [
-      organizerId,
-    ]);
-    const profileCount = await count("SELECT count(*) FROM public.profiles WHERE id = $1", [id(8)]);
-    ok(
-      "deleting an organizer preserves its owner's login profile",
-      organizerCount === 0 && profileCount === 1,
-    );
-  });
-}
-
 async function testAdminManagement() {
   console.log("\n[4] Controlled administrative management");
 
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
     await q("UPDATE public.orders SET status = 'cancelled' WHERE id = $1", [ORDER.a]);
-    await q("UPDATE public.organizer_payouts SET status = 'paid' WHERE id = $1", [PAYOUT]);
   });
   await asService(async () => {
     const order = await q("SELECT status FROM public.orders WHERE id = $1", [ORDER.a]);
-    const payout = await q("SELECT status FROM public.organizer_payouts WHERE id = $1", [PAYOUT]);
     ok("customer cannot change an order status", order.rows[0]?.status === "paid", order.rows[0]?.status);
-    ok("customer cannot change a payout status", payout.rows[0]?.status === "pending", payout.rows[0]?.status);
   });
 
   await asAuth(USER.admin, "admin@tickshow.test", async () => {
@@ -865,20 +705,11 @@ async function testAdminManagement() {
     const orderStatus = await q("SELECT status FROM public.orders WHERE id = $1", [ORDER.a]);
     ok("admin can update order status", orderStatus.rows[0]?.status === "refunded");
 
-    await expectError(
-      "admin cannot alter payout amounts",
-      "UPDATE public.organizer_payouts SET amount = 1 WHERE id = $1",
-      [PAYOUT],
-    );
-    await q("UPDATE public.organizer_payouts SET status = 'paid', paid_at = now() WHERE id = $1", [PAYOUT]);
-    const payoutStatus = await q("SELECT status FROM public.organizer_payouts WHERE id = $1", [PAYOUT]);
-    ok("admin can update payout status", payoutStatus.rows[0]?.status === "paid");
-
     const auditCount = await count(
       "SELECT count(*) FROM public.audit_logs WHERE actor_id = $1",
       [USER.admin],
     );
-    ok("admin mutations write audit entries", auditCount >= 2, `found ${auditCount}`);
+    ok("admin mutations write audit entries", auditCount >= 1, `found ${auditCount}`);
 
     const adminRole = await q("SELECT public.has_role('admin') AS value");
     ok("has_role reports admin for an admin session", adminRole.rows[0]?.value === true);
@@ -953,28 +784,26 @@ async function testStorefrontShowcase() {
     await expectError(
       "showcase catalog event requires complete operational details",
       `INSERT INTO public.storefront_events (
-        slug, title, category, date_label, date_value, organizer_id
+        slug, title, category, date_label, date_value, organizer_name, starts_at
       ) VALUES (
         'showcase-incomplete', 'Incomplete Catalog Event', 'Concerts & Music',
-        'Test date', CURRENT_DATE, $1
+        'Test date', CURRENT_DATE, 'Test Organizer', now()
       )`,
-      [ORG.A],
     );
 
     const linked = await q(
       `INSERT INTO public.storefront_events (
         slug, title, category, date_label, date_value, price_amount, event_group,
-        organizer_id, starts_at, ends_at, capacity
+        organizer_name, starts_at, ends_at, capacity
       ) VALUES (
         'showcase-linked', 'Linked Showcase Event', 'Concerts & Music',
-        'Test date', CURRENT_DATE + 10, 950, 'upcoming', $1,
+        'Test date', CURRENT_DATE + 10, 950, 'upcoming', 'Test Organizer',
         now() + interval '10 days', now() + interval '11 days', 60
       )
       RETURNING normalized_event_id`,
-      [ORG.A],
     );
     const catalogEvent = await q(
-      `SELECT title, status, approval_status, capacity
+      `SELECT title, organizer_name, status, approval_status, capacity
        FROM public.events WHERE id = $1`,
       [linked.rows[0]?.normalized_event_id],
     );
@@ -991,6 +820,7 @@ async function testStorefrontShowcase() {
     ok(
       "showcase creation adds a pending catalog event and General Admission inventory",
       catalogEvent.rows[0]?.title === "Linked Showcase Event" &&
+        catalogEvent.rows[0]?.organizer_name === "Test Organizer" &&
         catalogEvent.rows[0]?.status === "draft" &&
         catalogEvent.rows[0]?.approval_status === "pending" &&
         Number(catalogEvent.rows[0]?.capacity) === 60 &&
@@ -1004,11 +834,12 @@ async function testStorefrontShowcase() {
     );
 
     await q(
-      `UPDATE public.storefront_events SET title = 'Updated Showcase Event', capacity = 45
+      `UPDATE public.storefront_events
+       SET title = 'Updated Showcase Event', organizer_name = 'Updated Test Organizer', capacity = 45
        WHERE slug = 'showcase-linked'`,
     );
     const synced = await q(
-      `SELECT e.title, e.capacity, tt.quantity_total, ti.total_quantity
+      `SELECT e.title, e.organizer_name, e.capacity, tt.quantity_total, ti.total_quantity
        FROM public.storefront_events se
        JOIN public.events e ON e.id = se.normalized_event_id
        JOIN public.ticket_types tt ON tt.event_id = e.id
@@ -1018,6 +849,7 @@ async function testStorefrontShowcase() {
     ok(
       "showcase edits keep linked catalog details and inventory synchronized",
       synced.rows[0]?.title === "Updated Showcase Event" &&
+        synced.rows[0]?.organizer_name === "Updated Test Organizer" &&
         Number(synced.rows[0]?.capacity) === 45 &&
         Number(synced.rows[0]?.quantity_total) === 45 &&
         Number(synced.rows[0]?.total_quantity) === 45,
@@ -1362,8 +1194,6 @@ async function run() {
   await testSchema();
   await testRls();
   await testAdminInvitations();
-  await testOrganizerInvitations();
-  await testOrganizerDeletion();
   await testAdminManagement();
   await testStorefrontShowcase();
   await testStorefrontBookings();
