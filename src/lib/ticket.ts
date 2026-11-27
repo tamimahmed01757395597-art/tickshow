@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import type { Database } from "../types/database";
@@ -18,6 +19,27 @@ type DownloadResult = {
   alreadyDownloaded?: boolean;
   downloadUrl?: string;
 };
+
+async function getFunctionErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof FunctionsHttpError) || !(error.context instanceof Response)) {
+    return fallback;
+  }
+
+  try {
+    const body: unknown = await error.context.clone().json();
+    if (
+      body &&
+      typeof body === "object" &&
+      "error" in body &&
+      typeof body.error === "string"
+    ) {
+      return body.error;
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
 
 function asPdfDocument(pdf: jsPDF): TicketPdfDocument {
   return pdf;
@@ -63,7 +85,12 @@ export async function sendTicketEmail(
       body: { action, booking_reference: bookingReference },
     });
   if (error) {
-    throw new Error("The demo ticket email could not be sent. Check Resend settings and try again.");
+    throw new Error(
+      await getFunctionErrorMessage(
+        error,
+        "The demo ticket email could not be sent. Check Resend settings and try again.",
+      ),
+    );
   }
   if (!data) throw new Error("The ticket email service returned no response.");
   if (data.message && !data.sent && !data.alreadySent) {
@@ -78,7 +105,12 @@ export async function downloadTicketPdf(bookingReference: string) {
       body: { action: "download", booking_reference: bookingReference },
     });
   if (error) {
-    throw new Error("The demo ticket PDF could not be downloaded. Please try again.");
+    throw new Error(
+      await getFunctionErrorMessage(
+        error,
+        "The demo ticket PDF could not be downloaded. Please try again.",
+      ),
+    );
   }
   if (!data) throw new Error("The ticket service returned no response.");
   if (data.alreadyDownloaded || !data.downloaded) return false;
