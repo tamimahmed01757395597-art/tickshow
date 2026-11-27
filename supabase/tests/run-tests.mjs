@@ -454,6 +454,10 @@ async function testSchema() {
       "customers cannot call the admin customer directory",
       "SELECT * FROM public.admin_list_customers()",
     );
+    await expectError(
+      "customers cannot call the admin event directory",
+      "SELECT * FROM public.admin_list_events()",
+    );
   });
 
   await expectError(
@@ -683,6 +687,12 @@ async function testRls() {
   await asAuth(USER.admin, "admin@tickshow.test", async () => {
     const events = await ids("SELECT id FROM public.events");
     ok("admin sees all events", events.length === 4, JSON.stringify(events));
+    const directoryEvents = await ids("SELECT id FROM public.admin_list_events()");
+    ok(
+      "admin event directory returns every catalog event",
+      directoryEvents.length === 4 && events.every((eventId) => directoryEvents.includes(eventId)),
+      JSON.stringify(directoryEvents),
+    );
     const audit = await count("SELECT count(*) FROM public.audit_logs");
     ok("admin can read audit logs", audit === 0);
     const assigned = await q("SELECT public.assign_user_role($1, 'staff') AS role_id", [USER.customerB]);

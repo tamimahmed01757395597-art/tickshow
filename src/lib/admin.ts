@@ -196,10 +196,7 @@ export async function fetchOverview(): Promise<Overview> {
 }
 
 export async function fetchEvents(): Promise<EventView[]> {
-  const { data: events, error } = await requireSupabase()
-    .from("events")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { data: events, error } = await requireSupabase().rpc("admin_list_events");
   if (error) throw new Error(error.message);
   return (events ?? []).map((event) => ({
     ...event,

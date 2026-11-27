@@ -1091,6 +1091,10 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      admin_list_events: {
+        Args: Record<string, never>;
+        Returns: Database["public"]["Tables"]["events"]["Row"][];
+      };
       admin_list_customers: {
         Args: Record<string, never>;
         Returns: {
