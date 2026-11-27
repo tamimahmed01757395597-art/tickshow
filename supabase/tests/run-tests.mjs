@@ -801,6 +801,46 @@ async function testOrganizerInvitations() {
   });
 }
 
+async function testOrganizerDeletion() {
+  console.log("\n[3c] Guarded organizer deletion");
+  let organizerId = "";
+
+  await asService(async () => {
+    const organizer = await q("SELECT id FROM public.organizers WHERE owner_id = $1", [id(8)]);
+    organizerId = organizer.rows[0]?.id ?? "";
+    ok("accepted organizer exists for deletion tests", Boolean(organizerId));
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await expectError(
+      "customer cannot delete an organizer",
+      "SELECT public.delete_organizer($1)",
+      [organizerId],
+    );
+  });
+
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    await expectError(
+      "organizer with linked operational records cannot be deleted",
+      "SELECT public.delete_organizer($1)",
+      [ORG.A],
+    );
+    const result = await q("SELECT public.delete_organizer($1) AS deleted", [organizerId]);
+    ok("admin can delete an organizer without linked records", result.rows[0]?.deleted === true);
+  });
+
+  await asService(async () => {
+    const organizerCount = await count("SELECT count(*) FROM public.organizers WHERE id = $1", [
+      organizerId,
+    ]);
+    const profileCount = await count("SELECT count(*) FROM public.profiles WHERE id = $1", [id(8)]);
+    ok(
+      "deleting an organizer preserves its owner's login profile",
+      organizerCount === 0 && profileCount === 1,
+    );
+  });
+}
+
 async function testAdminManagement() {
   console.log("\n[4] Controlled administrative management");
 
@@ -1323,6 +1363,7 @@ async function run() {
   await testRls();
   await testAdminInvitations();
   await testOrganizerInvitations();
+  await testOrganizerDeletion();
   await testAdminManagement();
   await testStorefrontShowcase();
   await testStorefrontBookings();

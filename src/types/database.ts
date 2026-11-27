@@ -1,7 +1,7 @@
 /**
  * TickShow database types.
  *
- * Hand-authored to match supabase/migrations/0001-0025. After linking a real
+ * Hand-authored to match supabase/migrations/0001-0026. After linking a real
  * Supabase project you can regenerate this file with `npm run db:types:remote`.
  */
 
@@ -1354,6 +1354,10 @@ export type Database = {
       };
       accept_organizer_invitation: {
         Args: { p_user_id: string; p_token_hash: string };
+        Returns: boolean;
+      };
+      delete_organizer: {
+        Args: { p_organizer_id: string };
         Returns: boolean;
       };
       storage_path_uuid: { Args: { p_name: string }; Returns: string | null };

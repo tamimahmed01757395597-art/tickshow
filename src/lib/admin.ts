@@ -577,6 +577,14 @@ export async function updateOrganizer(
   if (error) throw new Error(error.message);
 }
 
+export async function deleteOrganizer(id: string): Promise<void> {
+  const { data, error } = await requireSupabase().rpc("delete_organizer", {
+    p_organizer_id: id,
+  });
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("The organizer was not deleted.");
+}
+
 export async function updateOrderStatus(id: string, status: Enums["order_status"]): Promise<void> {
   const patch: Tables["orders"]["Update"] = { status };
   if (status === "paid") patch.paid_at = new Date().toISOString();

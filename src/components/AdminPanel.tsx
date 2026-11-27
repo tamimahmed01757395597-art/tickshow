@@ -129,7 +129,11 @@ function organizerPatch(
     patch.approval_status = approval;
     patch.approved_at =
       approval === "approved" ? (row.approved_at ?? new Date().toISOString()) : null;
-    if (approval !== "approved" && (status ?? row.status) === "active") patch.status = "pending";
+    if (approval === "approved" && row.status === "pending") {
+      patch.status = "active";
+    } else if (approval !== "approved" && (status ?? row.status) === "active") {
+      patch.status = "pending";
+    }
   }
   return patch;
 }
@@ -619,67 +623,109 @@ function CustomersSection() {
 function OrganizersSection() {
   const { data, error, loading, reload } = useAdminFetch<OrganizerData>(api.fetchOrganizerData);
   const [editing, setEditing] = useState<OrganizerView | null>(null);
+  const [inviting, setInviting] = useState(false);
+
+  const deleteOrganizer = async (row: OrganizerView) => {
+    const confirmed = window.confirm(
+      `Permanently delete "${row.name}"? This is allowed only when it has no linked events, showcase entries, staff assignments, payouts, or commissions. The owner's login account will remain.`,
+    );
+    if (!confirmed) return;
+    try {
+      await api.deleteOrganizer(row.id);
+      reload();
+    } catch (caught) {
+      window.alert(messageOf(caught));
+    }
+  };
 
   return (
     <SectionState loading={loading} error={error} onRetry={reload}>
-      <DataTable<OrganizerView>
-        rows={data?.organizers ?? []}
-        rowKey={(row) => row.id}
-        columns={[
-          {
-            label: "Organizer",
-            render: (row) => (
-              <div className="admin-cell-title">
-                <strong>{row.name}</strong>
-                <span>{row.slug}</span>
-              </div>
-            ),
-          },
-          { label: "Owner", render: (row) => row.ownerName },
-          {
-            label: "Status",
-            render: (row) => (
-              <StatusSelect
-                value={row.status}
-                options={["pending", "active", "suspended"]}
-                onChange={(next) =>
-                  api
-                    .updateOrganizer(row.id, organizerPatch(row, next as Enums["organizer_status"]))
-                    .then(reload)
-                    .catch((caught: unknown) => window.alert(messageOf(caught)))
-                }
-              />
-            ),
-          },
-          {
-            label: "Approval",
-            render: (row) => (
-              <StatusSelect
-                value={row.approval_status}
-                options={APPROVAL_STATUSES}
-                onChange={(next) =>
-                  api
-                    .updateOrganizer(
-                      row.id,
-                      organizerPatch(row, undefined, next as Enums["approval_status"]),
-                    )
-                    .then(reload)
-                    .catch((caught: unknown) => window.alert(messageOf(caught)))
-                }
-              />
-            ),
-          },
-          { label: "Contact", render: (row) => row.contact_email ?? "—" },
-          {
-            label: "Actions",
-            render: (row) => (
-              <button className="admin-button admin-button-quiet" type="button" onClick={() => setEditing(row)}>
-                Edit
-              </button>
-            ),
-          },
-        ]}
-      />
+      <section className="admin-section-block">
+        <div className="admin-section-heading">
+          <div>
+            <h2>Organizer accounts</h2>
+            <p>Invite organizers, manage approval, or delete an unlinked organizer profile.</p>
+          </div>
+          <button
+            className="admin-button admin-button-primary"
+            type="button"
+            onClick={() => setInviting(true)}
+          >
+            Invite organizer
+          </button>
+        </div>
+        <DataTable<OrganizerView>
+          rows={data?.organizers ?? []}
+          rowKey={(row) => row.id}
+          columns={[
+            {
+              label: "Organizer",
+              render: (row) => (
+                <div className="admin-cell-title">
+                  <strong>{row.name}</strong>
+                  <span>{row.slug}</span>
+                </div>
+              ),
+            },
+            { label: "Owner", render: (row) => row.ownerName },
+            {
+              label: "Status",
+              render: (row) => (
+                <StatusSelect
+                  value={row.status}
+                  options={["pending", "active", "suspended"]}
+                  onChange={(next) =>
+                    api
+                      .updateOrganizer(row.id, organizerPatch(row, next as Enums["organizer_status"]))
+                      .then(reload)
+                      .catch((caught: unknown) => window.alert(messageOf(caught)))
+                  }
+                />
+              ),
+            },
+            {
+              label: "Approval",
+              render: (row) => (
+                <StatusSelect
+                  value={row.approval_status}
+                  options={APPROVAL_STATUSES}
+                  onChange={(next) =>
+                    api
+                      .updateOrganizer(
+                        row.id,
+                        organizerPatch(row, undefined, next as Enums["approval_status"]),
+                      )
+                      .then(reload)
+                      .catch((caught: unknown) => window.alert(messageOf(caught)))
+                  }
+                />
+              ),
+            },
+            { label: "Contact", render: (row) => row.contact_email ?? "—" },
+            {
+              label: "Actions",
+              render: (row) => (
+                <div className="admin-pill-group">
+                  <button
+                    className="admin-button admin-button-quiet"
+                    type="button"
+                    onClick={() => setEditing(row)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="admin-button admin-button-danger"
+                    type="button"
+                    onClick={() => void deleteOrganizer(row)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </section>
       <section className="admin-section-block">
         <div className="admin-section-heading">
           <div>
@@ -744,6 +790,22 @@ function OrganizersSection() {
             });
             reload();
           }}
+        />
+      )}
+      {inviting && (
+        <EditModal
+          title="Invite a new organizer"
+          fields={[
+            { key: "organizer_name", label: "Organizer name", required: true },
+            { key: "email", label: "Email address", type: "email", required: true },
+          ]}
+          initial={{}}
+          onClose={() => setInviting(false)}
+          onSave={async (values) => {
+            await api.inviteOrganizer(values.organizer_name, values.email);
+            reload();
+          }}
+          saveLabel="Send invitation"
         />
       )}
     </SectionState>

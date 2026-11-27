@@ -50,6 +50,7 @@ supabase/migrations/
   0023_link_showcase_events_to_catalog.sql
   0024_event_ticket_designs.sql
   0025_organizer_invitations.sql
+  0026_admin_organizer_deletion.sql
 supabase/functions/send-ticket-email/index.ts
 supabase/functions/invite-organizer/index.ts
 src/lib/ticket-pdf.ts                  (shared multi-ticket PDF renderer)
@@ -80,7 +81,7 @@ Ticket issuance is handled by the authenticated `send-ticket-email` Edge Functio
 
 Admins can select a built-in ticket style (Classic, Midnight, Festival or Neon) and optionally upload event-specific JPEG/PNG artwork in **Event showcase**. Booking creation snapshots both settings, so a later design change does not alter tickets already booked. The PDF renderer places booking details and the unique QR in fixed clear areas over the artwork; keep the A6 portrait canvas clear enough for those overlays.
 
-The organizer selector includes **Invite a new organizer**. The authenticated `invite-organizer` Edge Function stores a hashed, single-use seven-day invitation in `public.organizer_invitations` and emails the signup link through Brevo. Invitations are visible in the Admin panel's **Organizers** section; acceptance creates an organizer account in pending status, which an administrator must approve before it can be selected for an event.
+The Admin panel's **Organizers** section can send invitations through the authenticated `invite-organizer` Edge Function, which stores a hashed, single-use seven-day invitation in `public.organizer_invitations` and emails the signup link through Brevo. The event editor also offers **Invite a new organizer**. Acceptance creates an organizer account in pending status; an administrator must approve and activate it before event assignment. Permanent organizer deletion is available only when there are no linked events, showcase entries, staff assignments, payouts or commissions; the owner's login account is retained. Administrator invitations are managed in **Staff & roles**.
 
 ### Important invariants
 
@@ -165,7 +166,7 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0025 in order.
+Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0026 in order.
 
 ## 6. Environment variables
 
@@ -194,7 +195,7 @@ Brevo's API sends the PDF attachment using `BREVO_FROM_EMAIL`. Add and verify th
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0025` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0026` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -241,7 +242,7 @@ Migrations are idempotent. Migration 0019 intentionally deletes the known seeded
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0025 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0026 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
 - All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
