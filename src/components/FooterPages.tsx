@@ -5,6 +5,7 @@ import type { TickShowEvent } from "../data/events";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
+import { submitSupportMessage } from "../lib/support";
 
 export type FooterPageKey =
   | "events"
@@ -382,24 +383,70 @@ function InfoContent({ sections }: { sections: InfoSection[] }) {
   );
 }
 
-function MessageForm({ label }: { label: string }) {
+function MessageForm({
+  label,
+  formType,
+}: {
+  label: string;
+  formType: "contact" | "support";
+}) {
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const [error, setError] = useState("");
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSent(true);
+    setSending(true);
+    setSent(false);
+    setError("");
+    try {
+      await submitSupportMessage({ email, message, formType });
+      setEmail("");
+      setMessage("");
+      setSent(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Your message could not be submitted.");
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <form className="footer-page-form" onSubmit={handleSubmit}>
       <label htmlFor="page-email">Your email</label>
-      <input id="page-email" type="email" required placeholder="you@example.com" />
+      <input
+        id="page-email"
+        type="email"
+        autoComplete="email"
+        required
+        maxLength={254}
+        placeholder="you@example.com"
+        value={email}
+        onChange={(event) => {
+          setEmail(event.target.value);
+          setSent(false);
+        }}
+      />
       <label htmlFor="page-message">Message</label>
-      <textarea id="page-message" rows={5} required placeholder={label} />
-      <button className="button button-primary" type="submit">
-        Send message <Icon name="arrowRight" size={18} />
+      <textarea
+        id="page-message"
+        rows={5}
+        required
+        maxLength={5000}
+        placeholder={label}
+        value={message}
+        onChange={(event) => {
+          setMessage(event.target.value);
+          setSent(false);
+        }}
+      />
+      <button className="button button-primary" type="submit" disabled={sending}>
+        {sending ? "Sending…" : "Send message"} {!sending && <Icon name="arrowRight" size={18} />}
       </button>
+      {error && <p className="footer-page-notice" role="alert">{error}</p>}
       {sent && (
         <p className="footer-page-notice" role="status">
-          This is a frontend preview. Nothing was sent.
+          Your message was received and saved in the TickShow support inbox.
         </p>
       )}
     </form>
@@ -498,6 +545,7 @@ export default function FooterPage({
       <InfoContent sections={data.sections} />
       {showForm && (
         <MessageForm
+          formType={page === "contact" ? "contact" : "support"}
           label={
             page === "contact"
               ? "Tell us what's on your mind..."

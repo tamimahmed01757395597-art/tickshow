@@ -56,6 +56,7 @@ supabase/migrations/
   0029_admin_customer_directory.sql
   0030_repair_showcase_catalog_links.sql
   0031_admin_event_directory.sql
+  0032_customer_support_messages.sql
 supabase/functions/send-ticket-email/index.ts
 src/lib/ticket-pdf.ts                  (shared multi-ticket PDF renderer)
 supabase/tests/run-tests.mjs
@@ -94,6 +95,8 @@ Migration `0029` makes the admin Customers directory repair any missing profile 
 Migration `0030` links complete but previously unlinked showcase records to the catalog. In **Event showcase**, records still marked **Showcase only** can be linked with the **Link to Events** action after entering the organizer name, valid start/end date and time, and ticket capacity.
 
 Migration `0031` provides the admin Events page with an administrator-only catalog read function, so event rows are not silently hidden by stale or incomplete SELECT policies.
+
+Migration `0032` stores Contact and Booking support form submissions in a private admin inbox. Visitors can submit messages but cannot read them; administrators can review and update their status in **Support**. This inbox does not send email notifications.
 
 ### Important invariants
 
@@ -174,7 +177,7 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0031 in order. Before applying 0027, use the Supabase Storage Dashboard to remove organizer logo objects and delete the now-empty `organizer-logos` bucket; the migration checks that the managed bucket is already gone.
+Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0032 in order. Before applying 0027, use the Supabase Storage Dashboard to remove organizer logo objects and delete the now-empty `organizer-logos` bucket; the migration checks that the managed bucket is already gone.
 
 ## 6. Environment variables
 
@@ -203,7 +206,7 @@ Brevo's API sends the PDF attachment using `BREVO_FROM_EMAIL`. Add and verify th
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0027` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0032` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -240,7 +243,7 @@ npm run db:test
 
 Most migrations use guarded DDL; apply each migration once in order. Migration 0019 deletes only the known seeded showcase examples and associated demo bookings. Migration 0027 is an intentional, irreversible cleanup that permanently deletes organizer payout/commission history; take a database backup before applying it.
 
-Apply migration `0028` after `0027` to backfill customer profiles for existing Auth users, `0029` to enable the self-repairing admin Customers directory, `0030` to repair complete showcase-to-catalog links, and `0031` to enable the admin Events catalog read function. After applying these migrations, redeploy the frontend and delete the previously deployed `invite-organizer` Edge Function from the Supabase Dashboard. Migration 0027 intentionally aborts if the `organizer-logos` bucket still exists, because Storage buckets must be removed through the Storage API/dashboard rather than SQL.
+Apply migration `0028` after `0027` to backfill customer profiles for existing Auth users, `0029` to enable the self-repairing admin Customers directory, `0030` to repair complete showcase-to-catalog links, `0031` to enable the admin Events catalog read function, and `0032` to enable real Contact and Booking support submissions. After applying these migrations, redeploy the frontend and delete the previously deployed `invite-organizer` Edge Function from the Supabase Dashboard. Migration 0027 intentionally aborts if the `organizer-logos` bucket still exists, because Storage buckets must be removed through the Storage API/dashboard rather than SQL.
 
 ## 8. First administrator bootstrap
 
@@ -251,7 +254,7 @@ Apply migration `0028` after `0027` to backfill customer profiles for existing A
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0027 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0032 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
 - All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.

@@ -403,13 +403,13 @@ async function testSchema() {
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
   );
-  ok("all application tables created", tableCount === 25, `found ${tableCount}`);
+  ok("all application tables created", tableCount === 26, `found ${tableCount}`);
 
   const rlsCount = await count(
     `SELECT count(*) FROM pg_tables
      WHERE schemaname = 'public' AND rowsecurity = true`,
   );
-  ok("RLS enabled on all application tables", rlsCount === 25, `found ${rlsCount}`);
+  ok("RLS enabled on all application tables", rlsCount === 26, `found ${rlsCount}`);
   const removedTables = await count(
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public'
@@ -722,8 +722,60 @@ async function testRls() {
   });
 }
 
+async function testSupportMessages() {
+  console.log("\n[3] Customer support submissions");
+
+  await asAnon(async () => {
+    await q(
+      `INSERT INTO public.support_messages (sender_email, form_type, message)
+       VALUES ('visitor@tickshow.test', 'support', 'Please help with my booking.')`,
+    );
+    await expectError(
+      "anonymous visitors cannot read support messages",
+      "SELECT id FROM public.support_messages",
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await q(
+      `INSERT INTO public.support_messages (sender_email, form_type, message)
+       VALUES ('customer-a@tickshow.test', 'contact', 'I have a question about an event.')`,
+    );
+    await q(
+      `UPDATE public.support_messages SET status = 'resolved'
+       WHERE sender_email = 'visitor@tickshow.test'`,
+    );
+  });
+
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    const messages = await q(
+      `SELECT sender_email, form_type, status, user_id
+       FROM public.support_messages
+       ORDER BY created_at`,
+    );
+    const messagesByEmail = new Map(messages.rows.map((row) => [row.sender_email, row]));
+    ok(
+      "admin can read anonymous and signed-in support messages",
+      messages.rows.length === 2 &&
+        messagesByEmail.get("visitor@tickshow.test")?.user_id === null &&
+        messagesByEmail.get("customer-a@tickshow.test")?.user_id === USER.customerA &&
+        messagesByEmail.get("visitor@tickshow.test")?.status === "open",
+      JSON.stringify(messages.rows),
+    );
+    await q(
+      `UPDATE public.support_messages SET status = 'in_progress'
+       WHERE sender_email = 'visitor@tickshow.test'`,
+    );
+    const status = await q(
+      `SELECT status FROM public.support_messages
+       WHERE sender_email = 'visitor@tickshow.test'`,
+    );
+    ok("admin can update support message status", status.rows[0]?.status === "in_progress");
+  });
+}
+
 async function testAdminInvitations() {
-  console.log("\n[3] Invite-only admin registration");
+  console.log("\n[4] Invite-only admin registration");
   const invitee = id(7);
   const inviteHash = "c".repeat(64);
 
@@ -787,7 +839,7 @@ async function testAdminInvitations() {
 }
 
 async function testAdminManagement() {
-  console.log("\n[4] Controlled administrative management");
+  console.log("\n[5] Controlled administrative management");
 
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
     await q("UPDATE public.orders SET status = 'cancelled' WHERE id = $1", [ORDER.a]);
@@ -824,7 +876,7 @@ async function testAdminManagement() {
 }
 
 async function testStorefrontShowcase() {
-  console.log("\n[5] Storefront showcase management");
+  console.log("\n[6] Storefront showcase management");
 
   await asService(async () => {
     await q(
@@ -968,7 +1020,7 @@ async function testStorefrontShowcase() {
 }
 
 async function testStorefrontBookings() {
-  console.log("\n[6] Authenticated storefront booking persistence");
+  console.log("\n[7] Authenticated storefront booking persistence");
   let primaryBookingReference = "";
   let firstTicketId = "";
   const firstTicketToken = "a".repeat(64);
@@ -1251,7 +1303,7 @@ async function testStorefrontBookings() {
 }
 
 async function testAccountDeletion() {
-  console.log("\n[7] Customer account deletion");
+  console.log("\n[8] Customer account deletion");
 
   await asAnon(async () => {
     await expectError(
@@ -1295,6 +1347,7 @@ async function run() {
   await seedTestContext();
   await testSchema();
   await testRls();
+  await testSupportMessages();
   await testAdminInvitations();
   await testAdminManagement();
   await testStorefrontShowcase();

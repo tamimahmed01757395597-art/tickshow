@@ -13,6 +13,7 @@ import {
   type ShowcaseRecord,
   type StaffData,
   type SupportView,
+  type SupportMessageView,
   type StorefrontBookingView,
 } from "../lib/admin";
 import type { Database } from "../types/database";
@@ -42,7 +43,7 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   customers: "Find customer accounts and manage account status.",
   orders: "Review orders and update operational order status.",
   payments: "Read-only payment records maintained by trusted webhook processing.",
-  support: "Moderate customer reviews and feedback.",
+  support: "Review customer support requests and moderate event reviews.",
   activity: "Append-only audit trail of administrative mutations.",
   staff: "Assign roles and issue single-use administrator invitations.",
   showcase: "Control upcoming, ongoing, past and carousel events shown on the storefront.",
@@ -703,51 +704,120 @@ function PaymentsSection() {
 }
 
 function SupportSection() {
-  const { data, error, loading, reload } = useAdminFetch(api.fetchSupport);
+  const {
+    data: messages,
+    error: messageError,
+    loading: messagesLoading,
+    reload: reloadMessages,
+  } = useAdminFetch(api.fetchSupportMessages);
+  const {
+    data: reviews,
+    error: reviewError,
+    loading: reviewsLoading,
+    reload: reloadReviews,
+  } = useAdminFetch(api.fetchSupport);
   const [editing, setEditing] = useState<SupportView | null>(null);
+  const reload = () => {
+    reloadMessages();
+    reloadReviews();
+  };
+  const statusOptions: Enums["support_message_status"][] = ["open", "in_progress", "resolved"];
 
   return (
-    <SectionState loading={loading} error={error} onRetry={reload}>
-      <DataTable<SupportView>
-        rows={data ?? []}
-        rowKey={(row) => row.id}
-        columns={[
-          {
-            label: "Event",
-            render: (row) => (
-              <div className="admin-cell-title">
-                <strong>{row.eventTitle}</strong>
-                <span>{row.customerName}</span>
-              </div>
-            ),
-          },
-          { label: "Rating", render: (row) => `${row.rating} / 5` },
-          { label: "Comment", render: (row) => row.comment ?? "—" },
-          {
-            label: "Status",
-            render: (row) => (
-              <StatusSelect
-                value={row.status}
-                options={APPROVAL_STATUSES}
-                onChange={(next) =>
-                  api
-                    .moderateReview(row.id, next as Enums["review_status"])
-                    .then(reload)
-                    .catch((caught: unknown) => window.alert(messageOf(caught)))
-                }
-              />
-            ),
-          },
-          {
-            label: "Actions",
-            render: (row) => (
-              <button className="admin-button admin-button-quiet" type="button" onClick={() => setEditing(row)}>
-                Edit
-              </button>
-            ),
-          },
-        ]}
-      />
+    <SectionState
+      loading={messagesLoading || reviewsLoading}
+      error={messageError || reviewError}
+      onRetry={reload}
+    >
+      <section className="admin-section-block">
+        <div className="admin-section-heading">
+          <div>
+            <h2>Customer messages</h2>
+            <p>Submissions from Contact and Booking support. Reply to the sender’s email address.</p>
+          </div>
+        </div>
+        <DataTable<SupportMessageView>
+          rows={messages ?? []}
+          rowKey={(row) => row.id}
+          columns={[
+            {
+              label: "From",
+              render: (row) => (
+                <div className="admin-cell-title">
+                  <strong>{row.form_type === "support" ? "Booking support" : "Contact"}</strong>
+                  <span>{row.sender_email}</span>
+                </div>
+              ),
+            },
+            { label: "Message", render: (row) => <p className="admin-support-message">{row.message}</p> },
+            { label: "Received", render: (row) => formatDate(row.created_at) },
+            {
+              label: "Status",
+              render: (row) => (
+                <StatusSelect
+                  value={row.status}
+                  options={statusOptions}
+                  onChange={(next) =>
+                    api
+                      .updateSupportMessageStatus(row.id, next as Enums["support_message_status"])
+                      .then(reloadMessages)
+                      .catch((caught: unknown) => window.alert(messageOf(caught)))
+                  }
+                />
+              ),
+            },
+          ]}
+        />
+      </section>
+
+      <section className="admin-section-block">
+        <div className="admin-section-heading">
+          <div>
+            <h2>Event reviews</h2>
+            <p>Moderate ratings and feedback submitted for events.</p>
+          </div>
+        </div>
+        <DataTable<SupportView>
+          rows={reviews ?? []}
+          rowKey={(row) => row.id}
+          columns={[
+            {
+              label: "Event",
+              render: (row) => (
+                <div className="admin-cell-title">
+                  <strong>{row.eventTitle}</strong>
+                  <span>{row.customerName}</span>
+                </div>
+              ),
+            },
+            { label: "Rating", render: (row) => `${row.rating} / 5` },
+            { label: "Comment", render: (row) => row.comment ?? "—" },
+            {
+              label: "Status",
+              render: (row) => (
+                <StatusSelect
+                  value={row.status}
+                  options={APPROVAL_STATUSES}
+                  onChange={(next) =>
+                    api
+                      .moderateReview(row.id, next as Enums["review_status"])
+                      .then(reloadReviews)
+                      .catch((caught: unknown) => window.alert(messageOf(caught)))
+                  }
+                />
+              ),
+            },
+            {
+              label: "Actions",
+              render: (row) => (
+                <button className="admin-button admin-button-quiet" type="button" onClick={() => setEditing(row)}>
+                  Edit
+                </button>
+              ),
+            },
+          ]}
+        />
+      </section>
       {editing && (
         <EditModal
           title="Moderate review"
@@ -760,7 +830,7 @@ function SupportSection() {
           onClose={() => setEditing(null)}
           onSave={async (values) => {
             await api.moderateReview(editing.id, values.status as Enums["review_status"]);
-            reload();
+            reloadReviews();
           }}
         />
       )}

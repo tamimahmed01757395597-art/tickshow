@@ -10,6 +10,7 @@ type OrderRow = Tables["orders"]["Row"];
 type StorefrontBookingRow = Tables["storefront_bookings"]["Row"];
 type PaymentRow = Tables["payments"]["Row"];
 type ReviewRow = Tables["reviews"]["Row"];
+type SupportMessageRow = Tables["support_messages"]["Row"];
 type AuditRow = Tables["audit_logs"]["Row"];
 type InvitationRow = Tables["admin_invitations"]["Row"];
 
@@ -42,6 +43,7 @@ export type OrderView = OrderRow & { eventTitle: string };
 export type StorefrontBookingView = StorefrontBookingRow;
 export type PaymentView = PaymentRow & { orderNumber: string };
 export type SupportView = ReviewRow & { eventTitle: string; customerName: string };
+export type SupportMessageView = SupportMessageRow;
 export type ActivityView = AuditRow & { actorName: string };
 export type StaffView = {
   user_id: string;
@@ -366,7 +368,7 @@ export async function fetchSupport(): Promise<SupportView[]> {
   const client = requireSupabase();
   const [reviews, events, profiles] = await Promise.all([
     client.from("reviews").select("*").order("created_at", { ascending: false }),
-    client.from("events").select("id, title"),
+    client.rpc("admin_list_events"),
     client.from("profiles").select("id, full_name, email"),
   ]);
   if (reviews.error) throw new Error(reviews.error.message);
@@ -379,6 +381,26 @@ export async function fetchSupport(): Promise<SupportView[]> {
     eventTitle: titles.get(row.event_id) ?? "—",
     customerName: names.get(row.customer_id) ?? "—",
   }));
+}
+
+export async function fetchSupportMessages(): Promise<SupportMessageView[]> {
+  const { data, error } = await requireSupabase()
+    .from("support_messages")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function updateSupportMessageStatus(
+  id: string,
+  status: Enums["support_message_status"],
+): Promise<void> {
+  const { error } = await requireSupabase()
+    .from("support_messages")
+    .update({ status })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function fetchActivity(): Promise<ActivityView[]> {

@@ -752,6 +752,15 @@
   white-space: nowrap;
 }
 
+.admin-support-message {
+  max-width: 520px;
+  margin: 0;
+  color: #d9dcd4;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .admin-state {
   display: grid;
   justify-items: center;

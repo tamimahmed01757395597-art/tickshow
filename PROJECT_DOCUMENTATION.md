@@ -78,7 +78,7 @@ The booking funnel is still a **frontend demo**: it stores orders in `localStora
 
 ### 2.3 Scope boundary
 
-The storefront, admin panel and authentication are now connected to Supabase. However, the following remain out of scope: Stripe checkout, webhook processing, real payment capture, inventory reservation from the browser, QR generation, customer ticket wallets and per-event staff check-in UI. Checkout and contact/support forms still explain that no payment is taken and no message is sent.
+The storefront, admin panel and authentication are now connected to Supabase. However, the following remain out of scope: Stripe checkout, webhook processing, real payment capture, inventory reservation from the browser, QR generation, customer ticket wallets and per-event staff check-in UI. Checkout remains a demo flow without payment; Contact and Booking support messages are stored in the administrator’s Support inbox, but do not trigger email notifications.
 
 ---
 

@@ -776,6 +776,35 @@ export type Database = {
           updated_at?: string;
         }
       >;
+      support_messages: Table<
+        {
+          id: string;
+          user_id: string | null;
+          sender_email: string;
+          form_type: "contact" | "support";
+          message: string;
+          status: Database["public"]["Enums"]["support_message_status"];
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id?: string | null;
+          sender_email: string;
+          form_type: "contact" | "support";
+          message: string;
+          status?: Database["public"]["Enums"]["support_message_status"];
+          created_at?: string;
+        },
+        {
+          id?: string;
+          user_id?: string | null;
+          sender_email?: string;
+          form_type?: "contact" | "support";
+          message?: string;
+          status?: Database["public"]["Enums"]["support_message_status"];
+          created_at?: string;
+        }
+      >;
       platform_settings: Table<
         {
           id: string;
@@ -1212,6 +1241,7 @@ export type Database = {
       checkin_result: "success" | "denied" | "reversed";
       event_staff_permission: "view" | "checkin" | "manage_orders";
       review_status: "pending" | "approved" | "rejected";
+      support_message_status: "open" | "in_progress" | "resolved";
       notification_type: "order_created" | "payment_succeeded" | "payment_failed" | "ticket_issued" | "event_published" | "event_cancelled" | "refund_issued" | "system";
       storefront_event_group: "past" | "upcoming" | "ongoing";
     };
