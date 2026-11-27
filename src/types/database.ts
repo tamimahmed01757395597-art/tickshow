@@ -1,7 +1,7 @@
 /**
- * TickShow Phase 1 database types.
+ * TickShow database types.
  *
- * Hand-authored to match supabase/migrations/0001-0012. After linking a real
+ * Hand-authored to match supabase/migrations/0001-0020. After linking a real
  * Supabase project you can regenerate this file with `npm run db:types:remote`.
  */
 
@@ -1102,6 +1102,68 @@ export type Database = {
           updated_at?: string;
         }
       >;
+      storefront_bookings: Table<
+        {
+          id: string;
+          booking_reference: string;
+          storefront_event_id: string | null;
+          customer_id: string | null;
+          event_slug: string;
+          event_title: string;
+          event_date_label: string | null;
+          event_time_label: string | null;
+          event_venue: string | null;
+          event_location: string | null;
+          quantity: number;
+          unit_price_amount: number;
+          total_amount: number;
+          currency: string;
+          buyer_name: string;
+          buyer_email: string;
+          buyer_phone: string;
+          created_at: string;
+        },
+        {
+          id?: string;
+          booking_reference: string;
+          storefront_event_id?: string | null;
+          customer_id?: string | null;
+          event_slug: string;
+          event_title: string;
+          event_date_label?: string | null;
+          event_time_label?: string | null;
+          event_venue?: string | null;
+          event_location?: string | null;
+          quantity: number;
+          unit_price_amount: number;
+          total_amount: number;
+          currency?: string;
+          buyer_name: string;
+          buyer_email: string;
+          buyer_phone: string;
+          created_at?: string;
+        },
+        {
+          id?: string;
+          booking_reference?: string;
+          storefront_event_id?: string | null;
+          customer_id?: string | null;
+          event_slug?: string;
+          event_title?: string;
+          event_date_label?: string | null;
+          event_time_label?: string | null;
+          event_venue?: string | null;
+          event_location?: string | null;
+          quantity?: number;
+          unit_price_amount?: number;
+          total_amount?: number;
+          currency?: string;
+          buyer_name?: string;
+          buyer_email?: string;
+          buyer_phone?: string;
+          created_at?: string;
+        }
+      >;
       admin_invitations: Table<
         {
           id: string;
@@ -1169,6 +1231,17 @@ export type Database = {
       };
       storage_path_uuid: { Args: { p_name: string }; Returns: string | null };
       storage_path_owned_by_user: { Args: { p_name: string }; Returns: boolean };
+      create_storefront_booking: {
+        Args: {
+          p_event_slug: string;
+          p_quantity: number;
+          p_buyer_name: string;
+          p_buyer_email: string;
+          p_buyer_phone: string;
+        };
+        Returns: { booking_reference: string; total_amount: number }[];
+      };
+      delete_own_account: { Args: Record<string, never>; Returns: undefined };
     };
     Enums: {
       app_role: "admin" | "organizer" | "staff" | "customer";

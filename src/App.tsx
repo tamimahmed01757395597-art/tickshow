@@ -15,6 +15,8 @@ import type { FooterPageKey } from "./components/FooterPages";
 import FooterReveal from "./components/FooterReveal";
 import AdminPanel from "./components/AdminPanel";
 import { useAuth } from "./lib/auth";
+import AccountDashboard from "./components/AccountDashboard";
+import { requireSupabase } from "./lib/supabase";
 
 const NAV_ITEMS = [
   { label: "Home", href: "#home", id: "home" },
@@ -26,6 +28,7 @@ function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeLink, setActiveLink] = useState("home");
   const [scrolled, setScrolled] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 24);
@@ -69,12 +72,14 @@ function Header() {
           {navLinks()}
         </nav>
         <div className="desktop-actions">
-          <a className="header-login" href="#/login">
-            Log in
-          </a>
-          <a className="header-signup" href="#/signup">
-            Sign up
-          </a>
+          {user ? (
+            <a className="header-signup" href="#/account">My account</a>
+          ) : (
+            <>
+              <a className="header-login" href="#/login">Log in</a>
+              <a className="header-signup" href="#/signup">Sign up</a>
+            </>
+          )}
         </div>
         <div className="mobile-controls">
           <button
@@ -98,22 +103,35 @@ function Header() {
           {navLinks(true)}
         </nav>
         <div className="mobile-menu-actions">
-          <a
-            className="mobile-menu-link"
-            href="#/login"
-            onClick={() => setMenuOpen(false)}
-            tabIndex={menuOpen ? 0 : -1}
-          >
-            Log in
-          </a>
-          <a
-            className="mobile-menu-signup"
-            href="#/signup"
-            onClick={() => setMenuOpen(false)}
-            tabIndex={menuOpen ? 0 : -1}
-          >
-            Sign up
-          </a>
+          {user ? (
+            <a
+              className="mobile-menu-signup"
+              href="#/account"
+              onClick={() => setMenuOpen(false)}
+              tabIndex={menuOpen ? 0 : -1}
+            >
+              My account
+            </a>
+          ) : (
+            <>
+              <a
+                className="mobile-menu-link"
+                href="#/login"
+                onClick={() => setMenuOpen(false)}
+                tabIndex={menuOpen ? 0 : -1}
+              >
+                Log in
+              </a>
+              <a
+                className="mobile-menu-signup"
+                href="#/signup"
+                onClick={() => setMenuOpen(false)}
+                tabIndex={menuOpen ? 0 : -1}
+              >
+                Sign up
+              </a>
+            </>
+          )}
         </div>
       </div>
     </header>
@@ -237,14 +255,14 @@ function EventsSection({
         ) : (
           <div className="empty-results" role="status">
             <span className="empty-kicker">No matches</span>
-            <p>Try a different category.</p>
+            <p>{hasFilter ? "Try a different category." : "New events will appear here when available."}</p>
             <button className="button button-dark" type="button" onClick={onClear}>
               Show all events <Icon name="arrowRight" size={18} />
             </button>
           </div>
         )}
 
-        <div className="events-past">
+        {(carouselEvents.length > 0 || pastEvents.length > 0) && <div className="events-past">
           <div className="events-heading">
             <div className="events-title-block">
               <p className="section-kicker">The lineup</p>
@@ -259,7 +277,7 @@ function EventsSection({
             onOpenEvent={onOpenEvent}
             reducedMotion={reducedMotion}
           />
-        </div>
+        </div>}
       </div>
     </section>
   );
@@ -418,20 +436,36 @@ function Footer() {
   );
 }
 
-function AuthPage({ mode }: { mode: "login" | "signup" }) {
-  const isLogin = mode === "login";
+type AuthMode = "login" | "signup" | "staff-login" | "staff-signup";
+
+function requestedDestination() {
+  const query = window.location.hash.split("?")[1] ?? "";
+  const requested = new URLSearchParams(query).get("next") ?? "";
+  if (requested === "admin") return "admin";
+  if (/^checkout\/[a-z0-9-]+$/i.test(requested)) return requested;
+  return "account";
+}
+
+function destinationHash(destination: string) {
+  return destination === "admin" ? "#/admin" : `#/${destination}`;
+}
+
+function AuthPage({ mode }: { mode: AuthMode }) {
+  const isStaff = mode.startsWith("staff-");
+  const isLogin = mode.endsWith("login");
   const { configured, signIn, signUp, refresh } = useAuth();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const destination = isStaff ? "admin" : requestedDestination();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     setNotice("");
-
     if (!configured) {
-      setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to a local .env file.");
+      setError("Supabase is not configured. Add the public Supabase URL and anon key, then redeploy.");
       return;
     }
 
@@ -445,23 +479,31 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
     try {
       if (isLogin) {
         await signIn(email, password);
-        // Let the admin panel perform the authoritative role check. The login
-        // page can otherwise show a false negative if role state is still being
-        // refreshed after the session change.
-        await refresh();
-        window.location.hash = "#/admin";
+        const roles = await refresh();
+        if (isStaff && !roles.includes("admin")) {
+          window.location.hash = "#/admin";
+          return;
+        }
+        window.location.hash = destinationHash(destination);
         return;
       }
 
-      const result = await signUp({ email, password, fullName, inviteToken });
-      const roles = await refresh();
+      const result = await signUp({
+        email,
+        password,
+        fullName,
+        inviteToken: isStaff ? inviteToken : undefined,
+        returnTo: destination,
+      });
       if (result.needsConfirmation) {
-        setNotice("Account created. Confirm your email address, then log in to open the admin panel.");
-      } else if (roles.includes("admin")) {
-        window.location.hash = "#/admin";
-      } else {
-        setNotice("Account created as a customer. An administrator can assign additional roles.");
+        setNotice("Account created. Check your email and follow the confirmation link to continue.");
+        return;
       }
+      const roles = await refresh();
+      if (isStaff && !roles.includes("admin")) {
+        throw new Error("The invitation did not grant administrator access.");
+      }
+      window.location.hash = destinationHash(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
     } finally {
@@ -487,12 +529,18 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
         </div>
         <section className="auth-panel" aria-labelledby="auth-title">
           <div className="auth-card">
-            <p className="auth-card-kicker">Administrator access</p>
-            <h1 id="auth-title">{isLogin ? "Log in" : "Create an account"}</h1>
+            <p className="auth-card-kicker">{isStaff ? "Staff portal" : "Your TickShow account"}</p>
+            <h1 id="auth-title">
+              {isStaff ? "Administrator access" : isLogin ? "Welcome back" : "Create your account"}
+            </h1>
             <p className="auth-card-intro">
-              {isLogin
-                ? "Use the email and password of an authorized TickShow administrator."
-                : "One account for every plan you make. Add an admin invite token to create an administrator account."}
+              {isStaff
+                ? isLogin
+                  ? "Sign in with an administrator account."
+                  : "Use the single-use invitation sent by an administrator."
+                : isLogin
+                  ? "Log in to manage your bookings and tickets."
+                  : "Create an account to book tickets and manage your bookings."}
             </p>
             <form className="auth-form" onSubmit={handleSubmit}>
               {!isLogin && (
@@ -504,60 +552,310 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
               <label htmlFor="auth-email">Email address</label>
               <input id="auth-email" name="email" type="email" autoComplete="email" required />
               <label htmlFor="auth-password">Password</label>
-              <input
-                id="auth-password"
-                name="password"
-                type="password"
-                autoComplete={isLogin ? "current-password" : "new-password"}
-                minLength={8}
-                required
-              />
-              {!isLogin && (
+              <div className="auth-password-wrap">
+                <input
+                  id="auth-password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                  minLength={8}
+                  required
+                />
+                <button type="button" onClick={() => setShowPassword((value) => !value)}>
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+              {!isLogin && isStaff && (
                 <>
-                  <label htmlFor="auth-invite">Admin invitation token (optional)</label>
-                  <input
-                    id="auth-invite"
-                    name="inviteToken"
-                    type="text"
-                    autoComplete="off"
-                    placeholder="Leave blank for a customer account"
-                  />
-                  <p className="auth-field-hint">
-                    Only the token hash is stored. A token works once and must match this email.
-                  </p>
+                  <label htmlFor="auth-invite">Admin invitation token</label>
+                  <input id="auth-invite" name="inviteToken" type="text" autoComplete="off" required />
                 </>
               )}
               <button className="button button-primary auth-submit" type="submit" disabled={busy}>
-                {busy ? "Please wait…" : isLogin ? "Log in to admin" : "Create account"}{" "}
+                {busy ? "Please wait…" : isStaff ? "Continue to staff portal" : isLogin ? "Log in" : "Create account"}{" "}
                 {!busy && <Icon name="arrowRight" size={18} />}
               </button>
             </form>
-            {error && (
-              <p className="auth-error" role="alert">
-                {error}
-              </p>
-            )}
-            {notice && (
-              <p className="auth-notice" role="status">
-                {notice}
-              </p>
-            )}
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            {notice && <p className="auth-notice" role="status">{notice}</p>}
             {!configured && (
               <p className="auth-error" role="alert">
-                Backend setup: add <code>VITE_SUPABASE_URL</code> and{' '}
-                <code>VITE_SUPABASE_ANON_KEY</code> to Vercel Environment Variables and redeploy,
-                or to <code>.env.local</code> for local development.
+                Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to your deployment.
+              </p>
+            )}
+            {isLogin && (
+              <p className="auth-switch">
+                <a href={`#/forgot-password?next=${encodeURIComponent(destination)}`}>Forgot your password?</a>
               </p>
             )}
             <p className="auth-switch">
-              {isLogin ? "Need an admin account?" : "Already have an admin account?"}{" "}
-              <a href={isLogin ? "#/signup" : "#/login"}>
-                {isLogin ? "Sign up with an invite" : "Log in"}
+              {isStaff
+                ? isLogin
+                  ? "Have a staff invitation?"
+                  : "Already have staff access?"
+                : isLogin
+                  ? "New to TickShow?"
+                  : "Already have an account?"}{" "}
+              <a
+                href={
+                  isStaff
+                    ? isLogin
+                      ? "#/staff-invite"
+                      : "#/staff-access"
+                    : isLogin
+                      ? `#/signup?next=${encodeURIComponent(destination)}`
+                      : `#/login?next=${encodeURIComponent(destination)}`
+                }
+              >
+                {isStaff ? (isLogin ? "Accept invitation" : "Staff login") : isLogin ? "Create account" : "Log in"}
               </a>
             </p>
-            <p className="auth-card-note">
-              Administrator roles are assigned by the database, never by the browser.
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function ForgotPasswordPage() {
+  const { configured, requestPasswordReset } = useAuth();
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const destination = requestedDestination();
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      await requestPasswordReset(email, destination);
+      setNotice("If an account exists for that email, a password reset link is on its way.");
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "Could not request a reset link.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-topbar">
+        <Brand />
+        <a className="auth-home-link" href="#/login">
+          <Icon name="arrowLeft" size={16} /> Back to login
+        </a>
+      </div>
+      <main className="auth-main auth-main-centered">
+        <section className="auth-panel" aria-labelledby="reset-title">
+          <div className="auth-card">
+            <p className="auth-card-kicker">Account recovery</p>
+            <h1 id="reset-title">Reset your password</h1>
+            <p className="auth-card-intro">We’ll email you a secure link to choose a new password.</p>
+            <form className="auth-form" onSubmit={submit}>
+              <label htmlFor="reset-email">Email address</label>
+              <input
+                id="reset-email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+              <button className="button button-primary auth-submit" type="submit" disabled={busy || !configured}>
+                {busy ? "Sending…" : "Send reset link"} <Icon name="arrowRight" size={18} />
+              </button>
+            </form>
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            {notice && <p className="auth-notice" role="status">{notice}</p>}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AuthCallbackPage() {
+  const { updatePassword } = useAuth();
+  const query = new URLSearchParams(window.location.search);
+  const flow = query.get("flow") ?? "confirm";
+  const destination = query.get("next") ?? "account";
+  const [checking, setChecking] = useState(flow !== "deleted");
+  const [hasSession, setHasSession] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (flow === "deleted") return;
+    let active = true;
+    const verifyLink = async () => {
+      try {
+        const { data, error: sessionError } = await requireSupabase().auth.getSession();
+        if (!active) return;
+        if (sessionError) setError(sessionError.message);
+        setHasSession(Boolean(data.session));
+      } catch (caught: unknown) {
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Could not verify this email link.");
+        }
+      } finally {
+        if (active) setChecking(false);
+      }
+    };
+    void verifyLink();
+    return () => {
+      active = false;
+    };
+  }, [flow]);
+
+  const changePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") ?? "");
+    setBusy(true);
+    setError("");
+    try {
+      await updatePassword(password);
+      setNotice("Password updated. You can continue to your account.");
+      setHasSession(true);
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "Could not update your password.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const safeDestination =
+    destination === "admin" || destination === "account" || /^checkout\/[a-z0-9-]+$/i.test(destination)
+      ? destination
+      : "account";
+  const continueHref = `/#/${safeDestination}`;
+  const isRecovery = flow === "recovery";
+
+  return (
+    <div className="auth-page">
+      <div className="auth-topbar">
+        <Brand />
+        <a className="auth-home-link" href="/">
+          <Icon name="arrowLeft" size={16} /> Back to home
+        </a>
+      </div>
+      <main className="auth-main auth-main-centered">
+        <section className="auth-panel" aria-labelledby="callback-title">
+          <div className="auth-card">
+            <p className="auth-card-kicker">
+              {flow === "deleted" ? "Account deleted" : isRecovery ? "Password recovery" : "Email confirmation"}
             </p>
+            <h1 id="callback-title">
+              {flow === "deleted"
+                ? "Your account is deleted"
+                : isRecovery
+                  ? "Choose a new password"
+                  : "Confirming your email"}
+            </h1>
+            {flow === "deleted" ? (
+              <>
+                <p className="auth-card-intro">Your account and its associated bookings have been permanently deleted.</p>
+                <a className="button button-primary auth-submit" href="/">Back to TickShow</a>
+              </>
+            ) : checking ? (
+              <p className="auth-card-intro">Verifying the secure link…</p>
+            ) : error ? (
+              <p className="auth-error" role="alert">{error}</p>
+            ) : isRecovery ? (
+              hasSession ? (
+                notice ? (
+                  <>
+                    <p className="auth-notice" role="status">{notice}</p>
+                    <a className="button button-primary auth-submit" href={continueHref}>Continue</a>
+                  </>
+                ) : (
+                  <form className="auth-form" onSubmit={changePassword}>
+                    <label htmlFor="new-password">New password</label>
+                    <div className="auth-password-wrap">
+                      <input
+                        id="new-password"
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        minLength={8}
+                        required
+                      />
+                      <button type="button" onClick={() => setShowPassword((value) => !value)}>
+                        {showPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    <button className="button button-primary auth-submit" type="submit" disabled={busy}>
+                      {busy ? "Saving…" : "Update password"} <Icon name="arrowRight" size={18} />
+                    </button>
+                  </form>
+                )
+              ) : (
+                <>
+                  <p className="auth-error" role="alert">This reset link is invalid or expired. Request a new one.</p>
+                  <a className="button button-primary auth-submit" href="/#/forgot-password">Request another link</a>
+                </>
+              )
+            ) : hasSession ? (
+              <>
+                <p className="auth-notice" role="status">Your email is confirmed. Your account is ready.</p>
+                <a className="button button-primary auth-submit" href={continueHref}>Continue</a>
+              </>
+            ) : (
+              <>
+                <p className="auth-error" role="alert">The confirmation link could not be verified. It may have expired.</p>
+                <a className="button button-primary auth-submit" href="/#/login">Go to login</a>
+              </>
+            )}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AccountRequiredPage({ next }: { next: string }) {
+  const encoded = encodeURIComponent(next);
+  return (
+    <div className="auth-page">
+      <div className="auth-topbar">
+        <Brand />
+        <a className="auth-home-link" href="#/events">
+          <Icon name="arrowLeft" size={16} /> Back to events
+        </a>
+      </div>
+      <main className="auth-main auth-main-centered">
+        <section className="auth-panel" aria-labelledby="account-required-title">
+          <div className="auth-card">
+            <p className="auth-card-kicker">Your account</p>
+            <h1 id="account-required-title">Sign in to continue</h1>
+            <p className="auth-card-intro">Create an account or log in before booking. Your bookings will be saved to your dashboard.</p>
+            <div className="account-required-actions">
+              <a className="button button-primary" href={`#/signup?next=${encoded}`}>Create account</a>
+              <a className="button button-dark" href={`#/login?next=${encoded}`}>Log in</a>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function AccountDeletedPage() {
+  return (
+    <div className="auth-page">
+      <div className="auth-topbar"><Brand /></div>
+      <main className="auth-main auth-main-centered">
+        <section className="auth-panel">
+          <div className="auth-card">
+            <p className="auth-card-kicker">Account deleted</p>
+            <h1>Your account is deleted</h1>
+            <p className="auth-card-intro">Your account and its associated bookings have been permanently removed.</p>
+            <a className="button button-primary auth-submit" href="/">Back to TickShow</a>
           </div>
         </section>
       </main>
@@ -568,8 +866,11 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
 type Route =
   | { name: "home" }
   | { name: "admin" }
-  | { name: "login" }
-  | { name: "signup" }
+  | { name: "auth"; mode: AuthMode }
+  | { name: "forgot-password" }
+  | { name: "auth-callback" }
+  | { name: "account" }
+  | { name: "account-deleted" }
   | { name: "event"; id: string }
   | { name: "checkout"; id: string }
   | { name: "order"; reference: string }
@@ -590,22 +891,29 @@ const FOOTER_ROUTES: FooterPageKey[] = [
 ];
 
 function getRoute(): Route {
+  if (window.location.pathname === "/auth/callback") return { name: "auth-callback" };
   const hash = window.location.hash;
   if (!hash.startsWith("#/")) return { name: "home" };
   const value = hash.slice(2).toLowerCase();
-  if (value === "admin") return { name: "admin" };
-  if (value === "login" || value === "signup") return { name: value };
-  if (value.startsWith("event/")) {
-    return { name: "event", id: decodeURIComponent(value.slice("event/".length)) };
+  const path = value.split("?")[0];
+  if (path === "admin") return { name: "admin" };
+  if (path === "login" || path === "signup") return { name: "auth", mode: path };
+  if (path === "staff-access") return { name: "auth", mode: "staff-login" };
+  if (path === "staff-invite") return { name: "auth", mode: "staff-signup" };
+  if (path === "forgot-password") return { name: "forgot-password" };
+  if (path === "account") return { name: "account" };
+  if (path === "account-deleted") return { name: "account-deleted" };
+  if (path.startsWith("event/")) {
+    return { name: "event", id: decodeURIComponent(path.slice("event/".length)) };
   }
-  if (value.startsWith("checkout/")) {
-    return { name: "checkout", id: decodeURIComponent(value.slice("checkout/".length)) };
+  if (path.startsWith("checkout/")) {
+    return { name: "checkout", id: decodeURIComponent(path.slice("checkout/".length)) };
   }
-  if (value.startsWith("order/")) {
-    return { name: "order", reference: decodeURIComponent(value.slice("order/".length)) };
+  if (path.startsWith("order/")) {
+    return { name: "order", reference: decodeURIComponent(path.slice("order/".length)) };
   }
-  if (FOOTER_ROUTES.includes(value as FooterPageKey)) {
-    return { name: "page", page: value as FooterPageKey };
+  if (FOOTER_ROUTES.includes(path as FooterPageKey)) {
+    return { name: "page", page: path as FooterPageKey };
   }
   return { name: "home" };
 }
@@ -626,6 +934,7 @@ function App() {
   );
   const [route, setRoute] = useState<Route>(getRoute);
   const { events: showcaseEvents } = useStorefrontEvents();
+  const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
     const handleHashChange = () => setRoute(getRoute());
@@ -688,8 +997,21 @@ function App() {
     window.setTimeout(() => scrollTo("events"), 20);
   };
 
-  if (route.name === "login" || route.name === "signup") {
-    return <AuthPage key={route.name} mode={route.name} />;
+  if (route.name === "auth") {
+    return <AuthPage key={route.mode} mode={route.mode} />;
+  }
+  if (route.name === "forgot-password") {
+    return <ForgotPasswordPage />;
+  }
+  if (route.name === "auth-callback") {
+    return <AuthCallbackPage />;
+  }
+  if (route.name === "account-deleted") {
+    return <AccountDeletedPage />;
+  }
+  if (route.name === "account") {
+    if (authLoading) return <div className="account-empty">Loading account…</div>;
+    return user ? <AccountDashboard /> : <AccountRequiredPage next="account" />;
   }
   if (route.name === "admin") {
     return <AdminPanel />;
@@ -739,10 +1061,14 @@ function App() {
     );
   } else if (route.name === "checkout") {
     pageContent = checkoutEvent ? (
-      <CheckoutPage event={checkoutEvent} isPast={checkoutEvent.showcaseGroup === "past"} />
-    ) : (
-      <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />
-    );
+      authLoading ? (
+        <div className="account-empty">Checking your account…</div>
+      ) : user ? (
+        <CheckoutPage event={checkoutEvent} isPast={checkoutEvent.showcaseGroup === "past"} />
+      ) : (
+        <AccountRequiredPage next={`checkout/${checkoutEvent.id}`} />
+      )
+    ) : <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />;
   } else if (route.name === "order") {
     pageContent =
       booking !== undefined && bookingEvent !== undefined ? (

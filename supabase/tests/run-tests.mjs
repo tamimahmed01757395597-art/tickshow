@@ -344,13 +344,13 @@ async function testSchema() {
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
   );
-  ok("all Phase 1/2 tables created", tableCount === 27, `found ${tableCount}`);
+  ok("all application tables created", tableCount === 28, `found ${tableCount}`);
 
   const rlsCount = await count(
     `SELECT count(*) FROM pg_tables
      WHERE schemaname = 'public' AND rowsecurity = true`,
   );
-  ok("RLS enabled on all application tables", rlsCount === 27, `found ${rlsCount}`);
+  ok("RLS enabled on all application tables", rlsCount === 28, `found ${rlsCount}`);
 
   await expectError(
     "negative ticket price rejected",
@@ -635,6 +635,8 @@ async function testAdminInvitations() {
   const inviteHash = "c".repeat(64);
 
   await asService(async () => {
+    const seededRows = await count("SELECT count(*) FROM public.storefront_events");
+    ok("migration removes all bundled showcase examples", seededRows === 0, `found ${seededRows}`);
     await q(
       `INSERT INTO auth.users (id, email, raw_user_meta_data)
        VALUES ($1, 'invite-admin@tickshow.test', '{"full_name":"Invited Admin"}'::jsonb)`,
@@ -743,24 +745,34 @@ async function testAdminManagement() {
 async function testStorefrontShowcase() {
   console.log("\n[5] Storefront showcase management");
 
+  await asService(async () => {
+    await q(
+      `INSERT INTO public.storefront_events (
+        slug, title, category, date_label, date_value, price_amount, event_group, is_visible
+      ) VALUES
+        ('showcase-alpha', 'Test Event Alpha', 'Concerts & Music', 'Test date', CURRENT_DATE, 500, 'upcoming', true),
+        ('showcase-hidden', 'Test Event Hidden', 'Sports', 'Test date', CURRENT_DATE, 400, 'upcoming', true)`,
+    );
+  });
+
   await asAnon(async () => {
     const visible = await count("SELECT count(*) FROM public.storefront_events WHERE is_visible");
-    ok("anon sees the seeded storefront showcase", visible === 14, `found ${visible}`);
+    ok("showcase test fixtures are publicly visible", visible === 2, `found ${visible}`);
     await expectError(
       "anon cannot edit showcase events",
-      "UPDATE public.storefront_events SET title = 'Hacked' WHERE slug = 'rooftop-frequencies'",
+      "UPDATE public.storefront_events SET title = 'Hacked' WHERE slug = 'showcase-alpha'",
     );
   });
 
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
     const before = await q(
-      "SELECT price_amount FROM public.storefront_events WHERE slug = 'rooftop-frequencies'",
+      "SELECT price_amount FROM public.storefront_events WHERE slug = 'showcase-alpha'",
     );
     await q(
-      "UPDATE public.storefront_events SET price_amount = 1 WHERE slug = 'rooftop-frequencies'",
+      "UPDATE public.storefront_events SET price_amount = 1 WHERE slug = 'showcase-alpha'",
     );
     const after = await q(
-      "SELECT price_amount FROM public.storefront_events WHERE slug = 'rooftop-frequencies'",
+      "SELECT price_amount FROM public.storefront_events WHERE slug = 'showcase-alpha'",
     );
     ok(
       "customer cannot edit showcase events",
@@ -773,11 +785,11 @@ async function testStorefrontShowcase() {
     await q(
       `UPDATE public.storefront_events
        SET event_group = 'ongoing', is_carousel = true, carousel_order = 1
-       WHERE slug = 'rooftop-frequencies'`,
+       WHERE slug = 'showcase-alpha'`,
     );
     const moved = await q(
       `SELECT event_group, is_carousel, carousel_order
-       FROM public.storefront_events WHERE slug = 'rooftop-frequencies'`,
+       FROM public.storefront_events WHERE slug = 'showcase-alpha'`,
     );
     ok(
       "admin can move an event to ongoing and the carousel",
@@ -787,20 +799,177 @@ async function testStorefrontShowcase() {
       JSON.stringify(moved.rows[0]),
     );
     await q(
-      "UPDATE public.storefront_events SET is_visible = false WHERE slug = 'sunday-plates'",
+      "UPDATE public.storefront_events SET is_visible = false WHERE slug = 'showcase-hidden'",
     );
   });
 
   await asAnon(async () => {
     const hidden = await count(
-      "SELECT count(*) FROM public.storefront_events WHERE slug = 'sunday-plates'",
+      "SELECT count(*) FROM public.storefront_events WHERE slug = 'showcase-hidden'",
     );
     ok("hidden showcase event is not public", hidden === 0, `found ${hidden}`);
   });
 }
 
+async function testStorefrontBookings() {
+  console.log("\n[6] Authenticated storefront booking persistence");
+
+  await asService(async () => {
+    await q(
+      `INSERT INTO public.storefront_events (
+        slug, title, category, date_label, date_value, time_label, venue, location,
+        price_amount, event_group, is_visible
+      ) VALUES
+        ('booking-upcoming', 'Booking Test Event', 'Concerts & Music', 'Old sample date', DATE '2000-01-01', '8:00 PM', 'Test Hall', 'Dhaka', 1200, 'upcoming', true),
+        ('booking-ongoing', 'Ongoing Test Event', 'Sports', 'Old sample date', DATE '2000-01-01', '7:00 PM', 'Test Ground', 'Dhaka', 800, 'ongoing', true),
+        ('booking-hidden', 'Hidden Test Event', 'Sports', 'Test date', CURRENT_DATE, '6:00 PM', 'Test Hall', 'Dhaka', 400, 'upcoming', false),
+        ('booking-past', 'Past Test Event', 'Sports', 'Test date', CURRENT_DATE, '6:00 PM', 'Test Hall', 'Dhaka', 400, 'past', true)`,
+    );
+  });
+
+  await asAnon(async () => {
+    await expectError(
+      "anonymous visitors cannot create bookings",
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-upcoming', 1, 'Demo Buyer', 'buyer@example.test', '01234567890'
+      )`,
+    );
+    await expectError(
+      "anonymous clients cannot read booking details",
+      "SELECT * FROM public.storefront_bookings",
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    const result = await q(
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-upcoming', 2, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+      )`,
+    );
+    ok(
+      "signed-in checkout stores a booking at the database event price",
+      result.rows[0]?.booking_reference?.startsWith("TS-") &&
+        Number(result.rows[0]?.total_amount) === 2400,
+      JSON.stringify(result.rows[0]),
+    );
+    const snapshot = await q(
+      `SELECT event_date_label, event_time_label, event_venue, event_location
+       FROM public.storefront_bookings WHERE booking_reference = $1`,
+      [result.rows[0]?.booking_reference],
+    );
+    ok(
+      "booking snapshots event details for customer tickets",
+      snapshot.rows[0]?.event_date_label === "Old sample date" &&
+        snapshot.rows[0]?.event_time_label === "8:00 PM" &&
+        snapshot.rows[0]?.event_venue === "Test Hall" &&
+        snapshot.rows[0]?.event_location === "Dhaka",
+      JSON.stringify(snapshot.rows[0]),
+    );
+    const ongoing = await q(
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-ongoing', 1, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+      )`,
+    );
+    ok(
+      "ongoing events remain bookable even when their display date has passed",
+      Number(ongoing.rows[0]?.total_amount) === 800,
+      JSON.stringify(ongoing.rows[0]),
+    );
+    await expectError(
+      "checkout rejects more than eight tickets",
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-upcoming', 9, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+      )`,
+    );
+    await expectError(
+      "checkout rejects an invalid email",
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-upcoming', 1, 'Demo Buyer', 'not-an-email', '01234567890'
+      )`,
+    );
+    await expectError(
+      "checkout requires the authenticated account email",
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-upcoming', 1, 'Demo Buyer', 'someone-else@example.test', '01234567890'
+      )`,
+    );
+    await expectError(
+      "checkout rejects a hidden event",
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-hidden', 1, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+      )`,
+    );
+    await expectError(
+      "checkout rejects an event marked past",
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-past', 1, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+      )`,
+    );
+    const visible = await count("SELECT count(*) FROM public.storefront_bookings");
+    ok("customers can read only their own bookings", visible === 2);
+  });
+
+  await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
+    const visible = await count("SELECT count(*) FROM public.storefront_bookings");
+    ok("customers cannot read other buyers' booking details", visible === 0);
+  });
+
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    const booking = await q(
+      `SELECT booking_reference, buyer_email, total_amount
+       FROM public.storefront_bookings`,
+    );
+    ok(
+      "admins can review persisted storefront bookings",
+      booking.rows.length === 2 &&
+        booking.rows.some((row) =>
+          row.buyer_email === "customer-a@tickshow.test" && Number(row.total_amount) === 2400,
+        ),
+      JSON.stringify(booking.rows),
+    );
+  });
+}
+
+async function testAccountDeletion() {
+  console.log("\n[7] Customer account deletion");
+
+  await asAnon(async () => {
+    await expectError(
+      "anonymous users cannot delete accounts",
+      "SELECT public.delete_own_account()",
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await q("SELECT public.delete_own_account()");
+  });
+
+  await asService(async () => {
+    const authUser = await count("SELECT count(*) FROM auth.users WHERE id = $1", [USER.customerA]);
+    const profile = await count("SELECT count(*) FROM public.profiles WHERE id = $1", [USER.customerA]);
+    const bookings = await count(
+      "SELECT count(*) FROM public.storefront_bookings WHERE customer_id = $1",
+      [USER.customerA],
+    );
+    const retainedOrder = await q(
+      "SELECT customer_id, buyer_name, buyer_email, buyer_phone FROM public.orders WHERE id = $1",
+      [ORDER.a],
+    );
+    const orderWasAnonymized =
+      retainedOrder.rows[0]?.customer_id === null &&
+      retainedOrder.rows[0]?.buyer_name === "Deleted account" &&
+      retainedOrder.rows[0]?.buyer_email === `deleted+${ORDER.a}@example.invalid` &&
+      retainedOrder.rows[0]?.buyer_phone === null;
+    ok(
+      "deleting an account removes its auth user, profile, and bookings, and anonymizes order contact details",
+      authUser === 0 && profile === 0 && bookings === 0 && orderWasAnonymized,
+      JSON.stringify({ authUser, profile, bookings, orderWasAnonymized }),
+    );
+  });
+}
+
 async function run() {
-  console.log("TickShow Phase 1/2 database validation (PGlite in-memory PostgreSQL)");
+  console.log("TickShow database validation (PGlite in-memory PostgreSQL)");
   await applyShims();
   await applyMigrations();
   await seedTestContext();
@@ -809,6 +978,8 @@ async function run() {
   await testAdminInvitations();
   await testAdminManagement();
   await testStorefrontShowcase();
+  await testStorefrontBookings();
+  await testAccountDeletion();
 
   console.log(`\nRESULT: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exitCode = 1;

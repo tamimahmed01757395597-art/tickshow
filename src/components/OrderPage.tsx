@@ -33,13 +33,13 @@ export default function OrderPage({
       <main className="footer-page-main order-main">
         <div className="page-wrap">
           <header className="order-header">
-            <p className="section-kicker">Booking confirmed</p>
+            <p className="section-kicker">Demo booking saved</p>
             <h1>
-              You're <span>in</span>
+              You're <span>on the list</span>
             </h1>
             <p className="order-lede">
-              {booking.quantity} {ticketLabel} for {event.title} are booked under{" "}
-              {booking.name}. Keep the reference below — it is your entry at the door.
+              A demo booking for {booking.quantity} {ticketLabel} to {event.title} is saved
+              under {booking.name}. This is not a paid order or an entry ticket.
             </p>
           </header>
 
@@ -79,13 +79,14 @@ export default function OrderPage({
             <div className="ticket-stub-ref">
               <p>Booking reference</p>
               <strong>{booking.reference}</strong>
-              <span>Show this at the door</span>
+              <span>Demo reference — not valid for entry</span>
             </div>
           </article>
 
           <p className="order-note">
-            Demo checkout — no payment was taken. This booking is stored in your browser, so
-            you can reopen it at <code>#/order/{booking.reference}</code>.
+            No payment was taken and no ticket was issued. The booking is saved in TickShow's
+            database; this confirmation is also cached in this browser at{" "}
+            <code>#/order/{booking.reference}</code>.
           </p>
 
           <div className="order-actions">

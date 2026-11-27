@@ -12,6 +12,7 @@ export type IconName =
   | "mapPin"
   | "calendar"
   | "mail"
+  | "download"
   | "music"
   | "sports"
   | "festival"
@@ -62,6 +63,13 @@ const ICON_SHAPES: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="m3 7 9 6 9-6" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 20h14" />
     </>
   ),
   music: (

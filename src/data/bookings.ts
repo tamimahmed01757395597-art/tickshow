@@ -54,19 +54,23 @@ export function createBooking({
   name,
   email,
   phone,
+  reference,
+  amount,
 }: {
   event: TickShowEvent;
   quantity: number;
   name: string;
   email: string;
   phone: string;
+  reference?: string;
+  amount?: number;
 }): TicketBooking {
   const booking: TicketBooking = {
-    reference: makeReference(),
+    reference: reference ?? makeReference(),
     eventId: event.id,
     eventTitle: event.title,
     quantity,
-    amount: event.price * quantity,
+    amount: amount ?? event.price * quantity,
     name: name.trim(),
     email: email.trim(),
     phone: phone.trim(),
@@ -80,4 +84,8 @@ export function createBooking({
 export function findBooking(reference: string): TicketBooking | undefined {
   const wanted = reference.trim().toUpperCase();
   return readBookings().find((booking) => booking.reference.toUpperCase() === wanted);
+}
+
+export function clearBookings() {
+  window.localStorage.removeItem(STORAGE_KEY);
 }

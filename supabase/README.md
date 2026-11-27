@@ -1,6 +1,6 @@
 # TickShow — database foundation, admin authentication and event showcase
 
-This directory contains the Supabase/PostgreSQL foundation, the invite-only administrator frontend connection, and the admin-managed storefront event showcase. No Stripe integration, public checkout, QR generation or customer ticket wallet has been added.
+This directory contains the Supabase/PostgreSQL foundation, invite-only administrator access, the admin-managed storefront event showcase, and account-owned demo bookings. Demo bookings do not create paid orders or issue entry tickets.
 
 ## 1. Files created
 
@@ -11,14 +11,15 @@ package.json                            (backend scripts, Supabase JS client, PG
 src/types/database.ts                   (strong TypeScript database definitions)
 src/vite-env.d.ts                       (typed VITE_ environment variables)
 src/lib/supabase.ts                     (publishable Supabase client)
-src/lib/auth.tsx                        (session, roles, sign-in/sign-up/sign-out)
+src/lib/auth.tsx                        (customer/staff auth, recovery, profile and deletion)
 src/lib/tokens.ts                       (SHA-256 hashing + invite token generation)
 src/lib/admin.ts                        (admin reads and management mutations)
-src/lib/storefront.ts                   (storefront showcase data + preview fallback)
+src/lib/storefront.ts                   (storefront showcase data from Supabase)
 src/components/AdminPanel.tsx           (live, backend-connected admin panel)
 src/components/AdminPanel.css           (live data UI styles)
-src/App.tsx                             (real admin login/signup page)
+src/App.tsx                             (customer/staff auth routes and callback pages)
 src/main.tsx                            (AuthProvider)
+src/components/AccountDashboard.tsx     (customer bookings, profile and account controls)
 supabase/config.toml
 supabase/bootstrap.sql                  (all migrations combined, for manual SQL editor setup)
 supabase/build-bootstrap.mjs            (regenerates bootstrap.sql)
@@ -40,6 +41,10 @@ supabase/migrations/
   0014_admin_management_writes.sql
   0015_storefront_event_showcase.sql
   0016_grants_and_privileges.sql
+  0017_storefront_bookings.sql
+  0018_storefront_booking_availability.sql
+  0019_remove_seeded_showcase_data.sql
+  0020_customer_accounts_and_bookings.sql
 supabase/tests/run-tests.mjs
 ```
 
@@ -56,10 +61,12 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 | Orders / payments | `orders`, `order_items`, `payments`, `payment_webhook_events` |
 | Verification | `tickets`, `ticket_checkins` |
 | Finance | `refunds`, `organizer_commissions`, `organizer_payouts` |
-| Storefront showcase | `storefront_events` |
+| Storefront showcase | `storefront_events`, `storefront_bookings` |
 | Additional | `notifications`, `reviews`, `platform_settings`, `audit_logs` |
 
 `event_staff` provides explicit per-event staff assignments. `event_lineup_items` mirrors the existing frontend lineup structure. `storefront_events` is a separate presentation layer for the public grid, event detail pages and coverflow carousel; the normalized `events` table remains the source of truth for inventory, orders and finance.
+
+The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. These showcase records are separate from normalized `orders` because showcase events do not have ticket inventory configured.
 
 ### Important invariants
 
@@ -72,14 +79,25 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 - Admin panel updates cannot change order/payout amounts or ownership; database triggers enforce immutability.
 - Payment records and refunds remain read-only to clients; only trusted server/webhook code writes them.
 - Storefront showcase edits cannot change event inventory, ticket types, orders or payments; they only change display data.
+- Demo bookings are not payments or issued tickets; only authenticated customers can create bookings for currently visible, upcoming or ongoing events.
+- Account deletion removes the auth account, profile, demo bookings, and other profile-cascaded data. Historical normalized orders are retained for financial integrity with customer contact details anonymized.
 
-## 3. Administrator authentication
+## 3. Customer accounts and administrator authentication
+
+### Customer account flows
+
+- Customer login and signup are available at `#/login` and `#/signup`. The customer pages contain no staff login or invitation controls.
+- Checkout requires a signed-in account; bookings are tied to the authenticated user and shown in `#/account`.
+- The account dashboard supports booking history, a clearly marked demo-ticket HTML download, name updates, sign-out, and password-confirmed account deletion.
+- `#/forgot-password` sends a Supabase recovery email. `/auth/callback` handles confirmation and recovery links and provides the password update page.
+- Account deletion is immediate after password reauthentication; deletion-confirmation email delivery is not implemented. Financial order records are retained but anonymized.
+- Configure Supabase Auth **Site URL** and add the production `https://YOUR_DOMAIN/auth/callback` URL to **Redirect URLs**. Also allow the local callback URL when developing. Vercel rewrites `/auth/callback` to the SPA.
 
 ### Invite-only signup
 
 1. An existing administrator opens **Staff & roles** in the admin panel and enters the invitee's email.
 2. The browser generates a random 48-character token, computes its SHA-256 hash, and calls `public.create_admin_invitation`. Only the hash is stored; the raw token is shown once.
-3. The invitee opens `#/signup`, enters name, email, password and the raw token.
+3. The invitee opens the unlinked staff route `#/staff-invite`, enters name, email, password and the raw token.
 4. `supabase.auth.signUp` creates the auth user and `handle_new_user()` creates the profile.
 5. `public.accept_admin_invitation` verifies the token hash, expiry and email match, marks the token used, and inserts the `admin` role assignment.
 6. The browser never assigns roles directly. Self-assignment is blocked by `assign_user_role` and the `prevent_user_role_self_escalation` trigger.
@@ -88,7 +106,7 @@ If email confirmation is enabled, the account is created but the user must confi
 
 ### Route protection
 
-`#/admin` requires an authenticated Supabase session and the `admin` role. The panel shows a clear setup, login or access-denied gate otherwise. Role state is checked through both the `SECURITY DEFINER` helper `public.has_role('admin')` and readable role tables, so an assignment made by the first-admin SQL bootstrap is visible even if one source is restricted or stale. All writes are still authorized by database RLS.
+`#/admin` requires an authenticated Supabase session and the `admin` role. `#/staff-access` is not linked from customer pages, and the panel shows a clear setup, login or access-denied gate otherwise. Role state is checked through both the `SECURITY DEFINER` helper `public.has_role('admin')` and readable role tables, so an assignment made by the first-admin SQL bootstrap is visible even if one source is restricted or stale. All writes are still authorized by database RLS.
 
 ### Admin panel capabilities
 
@@ -98,7 +116,7 @@ If email confirmation is enabled, the account is created but the user must confi
 | Events | Approve, reject, publish, cancel, edit title/description/venue/status |
 | Customers | View accounts and roles; suspend/activate; edit name/email/status |
 | Organizers | Approve/reject, suspend/activate, edit profile/status |
-| Orders & tickets | View orders and change operational status; amounts immutable |
+| Orders & tickets | View demo storefront bookings and normalized orders; order amounts immutable |
 | Payments | Read-only payment/webhook metadata |
 | Payouts | View payouts and mark paid/in transit; amounts immutable |
 | Support | Moderate reviews and edit their status/comment |
@@ -108,10 +126,10 @@ If email confirmation is enabled, the account is created but the user must confi
 
 ## 4. Row Level Security
 
-RLS is enabled on all 27 application tables. The default is deny.
+RLS is enabled on all 28 application tables. The default is deny.
 
-- **Anonymous**: published + approved events, approved organizers/reviews, active categories, public settings and visible storefront showcase records.
-- **Customers**: their own profile, orders, tickets, payments, notifications and reviews.
+- **Anonymous**: published + approved events, approved organizers/reviews, active categories, public settings and visible storefront showcase records. Cannot create or read bookings.
+- **Customers**: their own profile, orders, tickets, payments, notifications, reviews and storefront bookings.
 - **Organizers**: their own records only, and only with the admin-assigned `organizer` role. Cannot self-approve.
 - **Staff**: only events with an active `event_staff` assignment.
 - **Admins**: broad controlled reads/writes including full storefront showcase management, but no self-escalation and immutable financial amounts.
@@ -130,7 +148,9 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 | `user-avatars` | Yes | `{user_id}/{filename}` |
 | `ticket-files` | No | `{order_id}/{ticket_id}/{filename}` |
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Applying migrations 0001–0016 in order remains the recommended path.
+The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
+
+Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0020 in order.
 
 ## 6. Environment variables
 
@@ -148,7 +168,7 @@ Real credentials are not committed. `.gitignore` ignores `.env` and `.env.*` exc
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0016` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0020` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; it does not remove other event records. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -179,20 +199,20 @@ npm run db:test
 | `npm run db:bundle` | Regenerate `supabase/bootstrap.sql` from all migrations |
 | `npm run build` | Production frontend build |
 
-All migrations are idempotent and non-destructive: no `DROP TABLE` or `TRUNCATE` on application data.
+Migrations are idempotent. Migration 0019 intentionally deletes the known seeded showcase examples and their associated demo bookings; no other existing event data is targeted.
 
 ## 8. First administrator bootstrap
 
 1. Sign up once through `#/signup` **without** an invite token (this creates a customer account).
 2. In the Supabase SQL editor, run the template in `supabase/seed.sql` to assign the `admin` role to that user.
-3. Log in at `#/login`, open **Staff & roles**, and invite the remaining administrators.
+3. Use the unlinked `#/staff-access` route to sign in as the bootstrapped admin, open **Staff & roles**, and invite the remaining administrators.
 4. Seed or invite organizer/staff roles the same way. Users cannot grant these roles to themselves.
 
 ## 9. Validation performed
 
-`npm run db:test` — **71 passed, 0 failed**. It applies migrations 0001–0016 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0020 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
-- 27 tables created with RLS on all of them.
+- 28 tables created with RLS on all of them.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
 - Inventory counters, one-time check-in and immutability guards.
 - Public/private visibility, tenant isolation and role separation.
@@ -201,9 +221,11 @@ All migrations are idempotent and non-destructive: no `DROP TABLE` or `TRUNCATE`
 - `public.has_role('admin')` returning the correct result for admin and customer sessions.
 - Explicit client table/function privileges, so RLS decisions are not blocked by missing `GRANT`s.
 - Storefront showcase visibility, non-admin write blocking, and admin grouping/carousel updates.
+- Public demo booking persistence, database-priced totals, validation and private buyer details.
+- Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.
 
 Also passed: `npx tsc --noEmit` and `npm run build`.
 
 ## 10. Not included
 
-Stripe checkout, webhook processing, customer ticket wallets, QR generation and per-event staff check-in UI remain out of scope. The public event grid, detail pages and carousel now read the admin-managed showcase when Supabase is configured, with the built-in sample events used as a preview fallback.
+Stripe checkout, webhook processing, real entry-ticket issuance, QR generation and per-event staff check-in UI remain out of scope. The public event grid, detail pages and carousel read the admin-managed showcase; there are no bundled sample-event fallbacks. The demo ticket download is not valid for event entry.

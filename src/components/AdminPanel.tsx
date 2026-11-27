@@ -15,6 +15,7 @@ import {
   type ShowcaseRecord,
   type StaffData,
   type SupportView,
+  type StorefrontBookingView,
 } from "../lib/admin";
 import type { Database } from "../types/database";
 import { EVENT_CATEGORIES } from "../data/events";
@@ -56,7 +57,7 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
 type EditField = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "date" | "checkbox";
+  type?: "text" | "textarea" | "select" | "number" | "date" | "checkbox" | "file";
   options?: string[];
   full?: boolean;
   hint?: string;
@@ -187,7 +188,7 @@ function DataTable<T>({
           {rows.map((row) => (
             <tr key={rowKey(row)}>
               {columns.map((column, index) => (
-                <td key={index}>{column.render(row)}</td>
+                <td key={index} data-label={column.label}>{column.render(row)}</td>
               ))}
             </tr>
           ))}
@@ -260,7 +261,10 @@ function EditModal({
   title: string;
   fields: EditField[];
   initial: Record<string, unknown>;
-  onSave: (values: Record<string, string>) => Promise<void>;
+  onSave: (
+    values: Record<string, string>,
+    files: Record<string, File | null>,
+  ) => Promise<void>;
   onClose: () => void;
   wide?: boolean;
   saveLabel?: string;
@@ -277,6 +281,7 @@ function EditModal({
       ]),
     ),
   );
+  const [files, setFiles] = useState<Record<string, File | null>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -287,7 +292,7 @@ function EditModal({
     setBusy(true);
     setError("");
     try {
-      await onSave(values);
+      await onSave(values, files);
       onClose();
     } catch (caught) {
       setError(messageOf(caught));
@@ -333,6 +338,18 @@ function EditModal({
                     </option>
                   ))}
                 </select>
+              ) : field.type === "file" ? (
+                <>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0] ?? null;
+                      setFiles((current) => ({ ...current, [field.key]: file }));
+                    }}
+                  />
+                  {files[field.key] && <small>Selected: {files[field.key]?.name}</small>}
+                </>
               ) : (
                 <input
                   type={field.type ?? "text"}
@@ -681,10 +698,54 @@ const ORDER_STATUSES: Enums["order_status"][] = [
 ];
 
 function OrdersSection() {
-  const { data, error, loading, reload } = useAdminFetch(api.fetchOrders);
+  const {
+    data: data,
+    error: orderError,
+    loading: ordersLoading,
+    reload: reloadOrders,
+  } = useAdminFetch(api.fetchOrders);
+  const {
+    data: bookings,
+    error: bookingError,
+    loading: bookingsLoading,
+    reload: reloadBookings,
+  } = useAdminFetch(api.fetchStorefrontBookings);
   return (
-    <SectionState loading={loading} error={error} onRetry={reload}>
-      <div className="admin-readonly-note">Amounts and buyer details are immutable from the admin client.</div>
+    <SectionState
+      loading={ordersLoading || bookingsLoading}
+      error={orderError ?? bookingError}
+      onRetry={() => {
+        reloadOrders();
+        reloadBookings();
+      }}
+    >
+      <div className="admin-readonly-note">
+        Payments and ticket issuance are not enabled. Demo bookings below are saved for review only.
+      </div>
+      <h3>Demo bookings</h3>
+      <DataTable<StorefrontBookingView>
+        rows={bookings ?? []}
+        rowKey={(row) => row.id}
+        columns={[
+          {
+            label: "Reference",
+            render: (row) => (
+              <div className="admin-cell-title">
+                <strong>{row.booking_reference}</strong>
+                <span>{row.quantity} ticket(s)</span>
+              </div>
+            ),
+          },
+          { label: "Event", render: (row) => row.event_title },
+          { label: "Buyer", render: (row) => row.buyer_email },
+          { label: "Total", render: (row) => formatMoney(row.total_amount, row.currency) },
+          { label: "Placed", render: (row) => formatDate(row.created_at) },
+        ]}
+      />
+      <h3>Platform orders</h3>
+      <div className="admin-readonly-note">
+        Amounts and buyer details are immutable from the admin client.
+      </div>
       <DataTable<OrderView>
         rows={data ?? []}
         rowKey={(row) => row.id}
@@ -710,7 +771,7 @@ function OrdersSection() {
                 onChange={(next) =>
                   api
                     .updateOrderStatus(row.id, next as Enums["order_status"])
-                    .then(reload)
+                    .then(reloadOrders)
                     .catch((caught: unknown) => window.alert(messageOf(caught)))
                 }
               />
@@ -907,7 +968,7 @@ const SHOWCASE_FIELDS: EditField[] = [
   {
     key: "slug",
     label: "URL slug",
-    hint: "Used in the event link. Lowercase letters, numbers and hyphens only.",
+    hint: "Use English letters or numbers. Spaces and punctuation become hyphens.",
   },
   { key: "category", label: "Category", type: "select", options: EVENT_CATEGORIES },
   { key: "event_group", label: "Where it appears", type: "select", options: SHOWCASE_GROUPS },
@@ -920,6 +981,13 @@ const SHOWCASE_FIELDS: EditField[] = [
   { key: "city", label: "City" },
   { key: "price_amount", label: "Display price (BDT)", type: "number" },
   { key: "display_order", label: "List order", type: "number" },
+  {
+    key: "image_file",
+    label: "Upload image from your computer",
+    type: "file",
+    full: true,
+    hint: "JPEG, PNG, WebP or AVIF, up to 10 MB. An uploaded file replaces the image URL below.",
+  },
   { key: "image_url", label: "Cover image URL", full: true },
   { key: "image_alt", label: "Image alt text", full: true },
   { key: "about", label: "About / detail page copy", type: "textarea", full: true },
@@ -983,6 +1051,21 @@ function showcaseInitial(row: ShowcaseRecord | null): Record<string, unknown> {
   };
 }
 
+function normalizeShowcaseSlug(value: string): string {
+  const slug = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (!slug) {
+    throw new Error("The URL slug must contain at least one English letter or number.");
+  }
+
+  return slug;
+}
+
 function showcaseValues(values: Record<string, string>): Tables["storefront_events"]["Insert"] {
   const numberOr = (key: string) => {
     const parsed = Number(values[key]);
@@ -990,7 +1073,7 @@ function showcaseValues(values: Record<string, string>): Tables["storefront_even
   };
   return {
     title: values.title.trim(),
-    slug: values.slug.trim().toLowerCase().replace(/\s+/g, "-"),
+    slug: normalizeShowcaseSlug(values.slug),
     category: values.category,
     event_group: values.event_group as ShowcaseGroup,
     status_label: values.status_label.trim() || "On sale now",
@@ -1066,10 +1149,39 @@ function ShowcaseSection() {
     }
   };
 
-  const save = async (values: Record<string, string>) => {
+  const save = async (
+    values: Record<string, string>,
+    files: Record<string, File | null>,
+  ) => {
     const record = showcaseValues(values);
-    if (creating) await api.createShowcaseEvent(record);
-    else if (editing) await api.updateShowcaseEvent(editing.id, record);
+    const eventId = editing?.id ?? crypto.randomUUID();
+    const file = files.image_file;
+    const uploaded = file ? await api.uploadShowcaseImage(eventId, file) : null;
+    try {
+      if (creating) {
+        await api.createShowcaseEvent({
+          ...record,
+          id: eventId,
+          image_url: uploaded?.publicUrl ?? record.image_url,
+        });
+      } else if (editing) {
+        await api.updateShowcaseEvent(editing.id, {
+          ...record,
+          image_url: uploaded?.publicUrl ?? record.image_url,
+        });
+      }
+    } catch (caught) {
+      if (uploaded) {
+        try {
+          await api.deleteShowcaseImage(uploaded.path);
+        } catch (cleanupError) {
+          throw new Error(
+            `${messageOf(caught)} Uploaded image cleanup also failed: ${messageOf(cleanupError)}`,
+          );
+        }
+      }
+      throw caught;
+    }
     reload();
     setEditing(null);
     setCreating(false);
@@ -1422,7 +1534,7 @@ function AdminGate({
         <h1>{title}</h1>
         <p>{message}</p>
         <div className="admin-gate-actions">
-          {showLogin && <a className="admin-button admin-button-primary" href="#/login">Log in</a>}
+          {showLogin && <a className="admin-button admin-button-primary" href="#/staff-access">Log in</a>}
           <a className="admin-button admin-button-quiet" href="#home">Back to storefront</a>
           <button className="admin-button admin-button-quiet" type="button" onClick={() => void refresh()}>
             Refresh access

@@ -1522,6 +1522,44 @@ textarea:focus-visible {
   border-color: var(--accent);
 }
 
+.auth-password-wrap {
+  position: relative;
+}
+
+.auth-password-wrap input {
+  padding-right: 68px;
+}
+
+.auth-password-wrap button {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.auth-main.auth-main-centered {
+  grid-template-columns: minmax(0, 560px);
+  justify-content: center;
+}
+
+.auth-main.auth-main-centered .auth-panel {
+  grid-column: 1;
+  justify-content: center;
+}
+
+.account-required-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
 .auth-form .button {
   justify-self: start;
   margin-top: 8px;
@@ -2309,6 +2347,13 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.checkout-error {
+  margin: 0;
+  color: #a32626;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .checkout-summary {

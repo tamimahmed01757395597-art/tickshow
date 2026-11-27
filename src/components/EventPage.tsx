@@ -58,8 +58,8 @@ export default function EventPage({
 
               <p className="event-page-note">
                 {isPast
-                  ? "This is sample event information from the TickShow archive."
-                  : "This is sample event information. Checkout is a demo in this preview — no real payment is taken."}
+                  ? "This event has finished and is kept in the TickShow archive."
+                  : "Checkout is currently a demo: no real payment is taken and no valid entry ticket is issued."}
               </p>
             </div>
 
@@ -111,7 +111,7 @@ export default function EventPage({
                 </p>
               ) : (
                 <p className="event-facts-note">
-                  {`৳${event.price.toLocaleString("en-US")} per ticket · up to 8 per order`}
+                  {`৳${event.price.toLocaleString("en-US")} per ticket · account required · up to 8 per booking`}
                 </p>
               )}
             </aside>

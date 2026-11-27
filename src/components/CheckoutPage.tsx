@@ -6,6 +6,8 @@ import {
   createBooking,
   formatTaka,
 } from "../data/bookings";
+import { requireSupabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 
@@ -16,7 +18,10 @@ export default function CheckoutPage({
   event: TickShowEvent;
   isPast: boolean;
 }) {
+  const { user } = useAuth();
   const [quantity, setQuantity] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     document.title = `Checkout · ${event.title} | TickShow`;
@@ -27,17 +32,44 @@ export default function CheckoutPage({
 
   const total = event.price * quantity;
 
-  const handleSubmit = (formEvent: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (formEvent: FormEvent<HTMLFormElement>) => {
     formEvent.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setSubmitError("");
     const data = new FormData(formEvent.currentTarget);
-    const booking = createBooking({
-      event,
-      quantity,
-      name: String(data.get("name") ?? ""),
-      email: String(data.get("email") ?? ""),
-      phone: String(data.get("phone") ?? ""),
-    });
-    window.location.hash = `#/order/${booking.reference}`;
+    const name = String(data.get("name") ?? "");
+    const email = String(data.get("email") ?? "");
+    const phone = String(data.get("phone") ?? "");
+
+    try {
+      const { data: result, error } = await requireSupabase()
+        .rpc("create_storefront_booking", {
+          p_event_slug: event.id,
+          p_quantity: quantity,
+          p_buyer_name: name,
+          p_buyer_email: email,
+          p_buyer_phone: phone,
+        })
+        .single();
+      if (error) throw new Error(error.message);
+
+      const booking = createBooking({
+        event,
+        quantity,
+        name,
+        email,
+        phone,
+        reference: result.booking_reference,
+        amount: Number(result.total_amount),
+      });
+      window.location.hash = `#/order/${booking.reference}`;
+    } catch (caught: unknown) {
+      setSubmitError(
+        caught instanceof Error ? caught.message : "Could not save your booking. Please try again.",
+      );
+      setSaving(false);
+    }
   };
 
   return (
@@ -116,7 +148,7 @@ export default function CheckoutPage({
                     </p>
                   </div>
                   <p className="checkout-hint">
-                    Up to {MAX_TICKETS_PER_ORDER} tickets per order. Every ticket is
+                    Up to {MAX_TICKETS_PER_ORDER} tickets per booking. Each represents
                     general admission for {event.venue}.
                   </p>
                 </section>
@@ -124,7 +156,7 @@ export default function CheckoutPage({
                 <section className="checkout-block" aria-labelledby="checkout-details-title">
                   <div className="checkout-block-head">
                     <h2 id="checkout-details-title">Your details</h2>
-                    <span>Tickets are issued under this name</span>
+                    <span>Booking is recorded under this name</span>
                   </div>
                   <div className="checkout-fields">
                     <label htmlFor="checkout-name">Full name</label>
@@ -141,6 +173,8 @@ export default function CheckoutPage({
                       name="email"
                       type="email"
                       autoComplete="email"
+                      defaultValue={user?.email ?? ""}
+                      readOnly
                       required
                     />
                     <label htmlFor="checkout-phone">Phone number</label>
@@ -157,9 +191,10 @@ export default function CheckoutPage({
                 </section>
 
                 <p className="checkout-note">
-                  Demo checkout — this preview does not take a real payment. Your order is
-                  saved in this browser so you can open the ticket again.
+                  Demo booking only — no payment is taken and no entry ticket is issued.
+                  Your booking details are saved to TickShow when you submit.
                 </p>
+                {submitError && <p className="checkout-error" role="alert">{submitError}</p>}
               </div>
 
               <aside className="checkout-summary" aria-label="Order summary">
@@ -200,11 +235,16 @@ export default function CheckoutPage({
                     <dd>{formatTaka(total)}</dd>
                   </div>
                 </dl>
-                <button className="button button-primary checkout-pay" type="submit">
-                  Pay {formatTaka(total)} <Icon name="arrowRight" size={18} />
+                <button
+                  className="button button-primary checkout-pay"
+                  type="submit"
+                  disabled={saving}
+                >
+                  {saving ? "Saving booking…" : `Place demo booking · ${formatTaka(total)}`}{" "}
+                  {!saving && <Icon name="arrowRight" size={18} />}
                 </button>
                 <p className="checkout-summary-note">
-                  You will get a booking reference straight away.
+                  Your booking reference appears after the database confirms it.
                 </p>
               </aside>
             </form>

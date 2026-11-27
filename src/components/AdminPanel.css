@@ -861,6 +861,21 @@
   resize: vertical;
 }
 
+.admin-modal-fields input[type="file"] {
+  padding: 8px;
+}
+
+.admin-modal-fields input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--admin-stroke);
+  border-radius: 6px;
+  background: var(--admin-panel-raised);
+  color: #e6e8e1;
+  cursor: pointer;
+  font: inherit;
+}
+
 .admin-modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -1113,5 +1128,93 @@
 @media (max-width: 760px) {
   .admin-modal-fields.is-wide {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .admin-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .admin-table {
+    display: block;
+  }
+
+  .admin-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .admin-table tbody {
+    display: grid;
+    gap: 8px;
+  }
+
+  .admin-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 14px;
+    border: 1px solid var(--admin-stroke);
+    border-radius: 12px;
+    background: var(--admin-panel);
+  }
+
+  .admin-table td,
+  .admin-table tr:last-child td {
+    display: grid;
+    grid-template-columns: minmax(76px, 0.45fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+    overflow-wrap: anywhere;
+  }
+
+  .admin-table td::before {
+    content: attr(data-label);
+    color: var(--admin-muted);
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .admin-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .admin-row-actions {
+    flex-wrap: wrap;
+  }
+
+  .admin-modal-backdrop {
+    padding: 12px;
+  }
+
+  .admin-modal {
+    max-height: calc(100dvh - 24px);
+    padding: 20px;
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-topbar {
+    display: grid;
+    min-height: 0;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .admin-topbar-actions {
+    justify-content: flex-start;
+    gap: 8px 14px;
+  }
+
+  .admin-modal-actions {
+    flex-wrap: wrap;
   }
 }

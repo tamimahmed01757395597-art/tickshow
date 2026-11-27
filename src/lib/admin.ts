@@ -8,6 +8,7 @@ type Enums = Database["public"]["Enums"];
 type EventRow = Tables["events"]["Row"];
 type OrganizerRow = Tables["organizers"]["Row"];
 type OrderRow = Tables["orders"]["Row"];
+type StorefrontBookingRow = Tables["storefront_bookings"]["Row"];
 type PaymentRow = Tables["payments"]["Row"];
 type PayoutRow = Tables["organizer_payouts"]["Row"];
 type ReviewRow = Tables["reviews"]["Row"];
@@ -43,6 +44,7 @@ export type CustomerView = {
 };
 export type OrganizerView = OrganizerRow & { ownerName: string };
 export type OrderView = OrderRow & { eventTitle: string };
+export type StorefrontBookingView = StorefrontBookingRow;
 export type PaymentView = PaymentRow & { orderNumber: string };
 export type PayoutView = PayoutRow & { organizerName: string };
 export type SupportView = ReviewRow & { eventTitle: string; customerName: string };
@@ -239,6 +241,43 @@ export async function createShowcaseEvent(
   if (error) throw new Error(error.message);
 }
 
+const SHOWCASE_IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/avif": "avif",
+};
+
+export async function uploadShowcaseImage(
+  eventId: string,
+  file: File,
+): Promise<{ path: string; publicUrl: string }> {
+  const extension = SHOWCASE_IMAGE_EXTENSIONS[file.type];
+  if (!extension) {
+    throw new Error("Choose a JPEG, PNG, WebP, or AVIF image.");
+  }
+  if (file.size === 0 || file.size > 10 * 1024 * 1024) {
+    throw new Error("Event images must be larger than 0 bytes and no larger than 10 MB.");
+  }
+
+  const path = `${eventId}/${crypto.randomUUID()}.${extension}`;
+  const client = requireSupabase();
+  const { error } = await client.storage.from("event-images").upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+
+  const { data } = client.storage.from("event-images").getPublicUrl(path);
+  return { path, publicUrl: data.publicUrl };
+}
+
+export async function deleteShowcaseImage(path: string): Promise<void> {
+  const { error } = await requireSupabase().storage.from("event-images").remove([path]);
+  if (error) throw new Error(error.message);
+}
+
 export async function updateShowcaseEvent(
   id: string,
   patch: Tables["storefront_events"]["Update"],
@@ -311,6 +350,15 @@ export async function fetchOrders(): Promise<OrderView[]> {
     ...row,
     eventTitle: titles.get(row.event_id) ?? "—",
   }));
+}
+
+export async function fetchStorefrontBookings(): Promise<StorefrontBookingView[]> {
+  const { data, error } = await requireSupabase()
+    .from("storefront_bookings")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }
 
 export async function fetchPayments(): Promise<PaymentView[]> {

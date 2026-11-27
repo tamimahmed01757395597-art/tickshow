@@ -60,7 +60,7 @@ const INFO_PAGES: Record<
       {
         heading: "The team",
         paragraphs: [
-          "TickShow is a small group of Manikganj locals who go to too many shows and never stop talking about the next one. This is a frontend preview built to show the idea, not a live ticketing service.",
+          "TickShow is a small group of Manikganj locals who go to too many shows and never stop talking about the next one.",
         ],
       },
     ],
@@ -98,19 +98,19 @@ const INFO_PAGES: Record<
       {
         heading: "Preview only",
         paragraphs: [
-          "This site is a frontend demonstration. Event listings are sample data, and no booking, payment, or ticket issuance takes place here.",
+          "Checkout currently uses a no-charge demo payment. Demo bookings are saved to your account, but no real payment is taken and no valid entry ticket is issued.",
         ],
       },
       {
         heading: "Event information",
         paragraphs: [
-          "Dates, venues, prices and availability are illustrative and may not reflect real events. Always confirm details with the organizer before making plans.",
+          "Dates, venues, prices and availability are provided by event organizers. Confirm details with the organizer before making plans.",
         ],
       },
       {
         heading: "Accounts",
         paragraphs: [
-          "The sign-in and sign-up forms are demonstrations only. They do not create accounts and do not transmit any data.",
+          "Accounts are managed through TickShow authentication. You can update your account name, view demo bookings, and permanently delete your account from your dashboard after confirming your password.",
         ],
       },
       {
@@ -126,18 +126,24 @@ const INFO_PAGES: Record<
     title: "Privacy",
     accent: "policy",
     intro:
-      "We keep this preview simple: we don't collect, store, or transmit your personal information.",
+      "TickShow stores the account and booking information needed to manage your demo bookings.",
     sections: [
       {
         heading: "What we collect",
         paragraphs: [
-          "Nothing. The forms on this site are local demonstrations. Anything you type stays in your browser and is not sent anywhere.",
+          "Your account email and name, plus the name, email and phone number attached to a booking. This information is stored in the TickShow Supabase database and is available to authorized administrators.",
         ],
       },
       {
         heading: "Cookies and storage",
         paragraphs: [
-          "TickShow does not set cookies or use analytics in this preview.",
+          "Supabase authentication stores the session needed to keep you signed in. Booking confirmations may also be cached in your browser.",
+        ],
+      },
+      {
+        heading: "Account deletion",
+        paragraphs: [
+          "Deleting your account removes your profile and demo bookings. Financial order records are retained with customer contact details anonymized. Account deletion is confirmed with your password; we do not send a separate deletion email.",
         ],
       },
       {
@@ -167,17 +173,17 @@ const INFO_PAGES: Record<
           {
             term: "Is TickShow a ticketing site?",
             detail:
-              "Not yet. This preview shows how browsing events could work. Checkout and ticket delivery are not connected.",
+              "Checkout is currently a no-charge demo. It records bookings but does not take real payment or issue valid entry tickets.",
           },
           {
             term: "Are the events real?",
             detail:
-              "The listings are sample data used to demonstrate the interface. Confirm details with organizers.",
+              "Events are managed through TickShow. Confirm details with the event organizer before making plans.",
           },
           {
             term: "Do I need an account?",
             detail:
-              "No. You can browse every event without signing in.",
+              "You can browse without an account, but you must sign in or create an account to book.",
           },
           {
             term: "Can I filter by category?",
@@ -216,7 +222,7 @@ const INFO_PAGES: Record<
       {
         heading: "Event details",
         paragraphs: [
-          "Select any event card to open its own page with the lineup, date, venue, price and status. Booking is not available in this preview.",
+          "Select any event card to open its own page with the lineup, date, venue, price and status. Sign in or create an account to continue to the demo checkout.",
         ],
       },
       {
@@ -239,7 +245,7 @@ const INFO_PAGES: Record<
       {
         heading: "Before you write",
         paragraphs: [
-          "TickShow is a preview, so no real bookings are made here. If you already have tickets, contact the organizer or the official ticketing provider listed on your confirmation.",
+          "TickShow demo bookings are not paid orders or valid tickets. If you already have tickets, contact the organizer or the official ticketing provider listed on your confirmation.",
         ],
       },
       {
@@ -424,7 +430,11 @@ export default function FooterPage({
         accent="events"
         intro="Every show, game and gathering across Manikganj, Dhaka. Pick a card for the full details."
       >
-        <EventGrid events={events} onOpenEvent={onOpenEvent} />
+        {events.length ? (
+          <EventGrid events={events} onOpenEvent={onOpenEvent} />
+        ) : (
+          <p className="footer-page-intro">No events are listed right now. Please check back soon.</p>
+        )}
       </PageShell>
     );
   }
