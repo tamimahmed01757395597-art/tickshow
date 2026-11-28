@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { TickShowEvent } from "../data/events";
-import {
-  MAX_TICKETS_PER_ORDER,
-  createBooking,
-  formatTaka,
-} from "../data/bookings";
-import { requireSupabase } from "../lib/supabase";
+import { MAX_TICKETS_PER_ORDER, formatTaka } from "../data/bookings";
+import { startStripeCheckout } from "../lib/checkout";
 import { useAuth } from "../lib/auth";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
@@ -39,33 +35,18 @@ export default function CheckoutPage({
     setSubmitError("");
     const data = new FormData(formEvent.currentTarget);
     const name = String(data.get("name") ?? "");
-    const email = String(data.get("email") ?? "");
     const phone = String(data.get("phone") ?? "");
 
     try {
-      const { data: result, error } = await requireSupabase()
-        .rpc("create_storefront_booking", {
-          p_event_slug: event.id,
-          p_quantity: quantity,
-          p_buyer_name: name,
-          p_buyer_email: email,
-          p_buyer_phone: phone,
-        })
-        .single();
-      if (error) throw new Error(error.message);
-      const booking = createBooking({
-        event,
+      await startStripeCheckout({
+        eventSlug: event.id,
         quantity,
-        name,
-        email,
-        phone,
-        reference: result.booking_reference,
-        amount: Number(result.total_amount),
+        buyerName: name,
+        buyerPhone: phone,
       });
-      window.location.hash = `#/order/${booking.reference}`;
     } catch (caught: unknown) {
       setSubmitError(
-        caught instanceof Error ? caught.message : "Could not save your booking. Please try again.",
+        caught instanceof Error ? caught.message : "Checkout could not be started. Please try again.",
       );
       setSaving(false);
     }
@@ -83,11 +64,10 @@ export default function CheckoutPage({
       <main className="footer-page-main checkout-main">
         <div className="page-wrap">
           <header className="checkout-header">
-            <p className="section-kicker">Checkout</p>
+            <p className="section-kicker">Secure checkout</p>
             <h1>Get tickets</h1>
             <p className="checkout-lede">
-              Choose your tickets for {event.title}, then add the details for the person
-              collecting them.
+              Choose your tickets for {event.title}, then continue to Stripe to complete TEST MODE payment.
             </p>
           </header>
 
@@ -147,7 +127,7 @@ export default function CheckoutPage({
                     </p>
                   </div>
                   <p className="checkout-hint">
-                    Up to {MAX_TICKETS_PER_ORDER} tickets per booking. Each represents
+                    Up to {MAX_TICKETS_PER_ORDER} tickets per order. Each represents
                     general admission for {event.venue}.
                   </p>
                 </section>
@@ -155,7 +135,7 @@ export default function CheckoutPage({
                 <section className="checkout-block" aria-labelledby="checkout-details-title">
                   <div className="checkout-block-head">
                     <h2 id="checkout-details-title">Your details</h2>
-                    <span>Booking is recorded under this name</span>
+                    <span>Order is created under your signed-in email</span>
                   </div>
                   <div className="checkout-fields">
                     <label htmlFor="checkout-name">Full name</label>
@@ -164,6 +144,7 @@ export default function CheckoutPage({
                       name="name"
                       type="text"
                       autoComplete="name"
+                      maxLength={160}
                       required
                     />
                     <label htmlFor="checkout-email">Email address</label>
@@ -184,15 +165,16 @@ export default function CheckoutPage({
                       inputMode="tel"
                       autoComplete="tel"
                       placeholder="01XXXXXXXXX"
+                      minLength={7}
+                      maxLength={32}
                       required
                     />
                   </div>
                 </section>
 
                 <p className="checkout-note">
-                  Demo booking only — no payment is taken. Any generated ticket is marked DEMO / TEST
-                  and is not valid for paid event entry.
-                  Your booking details are saved to TickShow when you submit.
+                  Stripe TEST MODE is enforced on the server. Prices are read from the database;
+                  tickets are issued only after Stripe sends a signed, verified payment webhook.
                 </p>
                 {submitError && <p className="checkout-error" role="alert">{submitError}</p>}
               </div>
@@ -226,10 +208,6 @@ export default function CheckoutPage({
                     </dt>
                     <dd>{formatTaka(total)}</dd>
                   </div>
-                  <div>
-                    <dt>Booking fee</dt>
-                    <dd>Free</dd>
-                  </div>
                   <div className="checkout-total-row">
                     <dt>Total</dt>
                     <dd>{formatTaka(total)}</dd>
@@ -240,11 +218,11 @@ export default function CheckoutPage({
                   type="submit"
                   disabled={saving}
                 >
-                  {saving ? "Saving booking…" : `Place demo booking · ${formatTaka(total)}`}{" "}
+                  {saving ? "Starting secure checkout…" : `Continue to payment · ${formatTaka(total)}`}{" "}
                   {!saving && <Icon name="arrowRight" size={18} />}
                 </button>
                 <p className="checkout-summary-note">
-                  Your booking reference appears after the database confirms it.
+                  You will return to TickShow after Stripe completes the test payment.
                 </p>
               </aside>
             </form>

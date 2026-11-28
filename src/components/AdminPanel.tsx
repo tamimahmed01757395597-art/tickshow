@@ -14,7 +14,6 @@ import {
   type StaffData,
   type SupportView,
   type SupportMessageView,
-  type StorefrontBookingView,
 } from "../lib/admin";
 import type { Database } from "../types/database";
 import { EVENT_CATEGORIES } from "../data/events";
@@ -589,53 +588,11 @@ const ORDER_STATUSES: Enums["order_status"][] = [
 ];
 
 function OrdersSection() {
-  const {
-    data: data,
-    error: orderError,
-    loading: ordersLoading,
-    reload: reloadOrders,
-  } = useAdminFetch(api.fetchOrders);
-  const {
-    data: bookings,
-    error: bookingError,
-    loading: bookingsLoading,
-    reload: reloadBookings,
-  } = useAdminFetch(api.fetchStorefrontBookings);
+  const { data, error, loading, reload } = useAdminFetch(api.fetchOrders);
   return (
-    <SectionState
-      loading={ordersLoading || bookingsLoading}
-      error={orderError ?? bookingError}
-      onRetry={() => {
-        reloadOrders();
-        reloadBookings();
-      }}
-    >
+    <SectionState loading={loading} error={error} onRetry={reload}>
       <div className="admin-readonly-note">
-        Payments and ticket issuance are not enabled. Demo bookings below are saved for review only.
-      </div>
-      <h3>Demo bookings</h3>
-      <DataTable<StorefrontBookingView>
-        rows={bookings ?? []}
-        rowKey={(row) => row.id}
-        columns={[
-          {
-            label: "Reference",
-            render: (row) => (
-              <div className="admin-cell-title">
-                <strong>{row.booking_reference}</strong>
-                <span>{row.quantity} ticket(s)</span>
-              </div>
-            ),
-          },
-          { label: "Event", render: (row) => row.event_title },
-          { label: "Buyer", render: (row) => row.buyer_email },
-          { label: "Total", render: (row) => formatMoney(row.total_amount, row.currency) },
-          { label: "Placed", render: (row) => formatDate(row.created_at) },
-        ]}
-      />
-      <h3>Platform orders</h3>
-      <div className="admin-readonly-note">
-        Amounts and buyer details are immutable from the admin client.
+        Amounts and buyer details are immutable. Paid status is set only by verified Stripe webhooks.
       </div>
       <DataTable<OrderView>
         rows={data ?? []}
@@ -658,11 +615,11 @@ function OrdersSection() {
             render: (row) => (
               <StatusSelect
                 value={row.status}
-                options={ORDER_STATUSES}
+                options={ORDER_STATUSES.filter((status) => status !== "paid")}
                 onChange={(next) =>
                   api
                     .updateOrderStatus(row.id, next as Enums["order_status"])
-                    .then(reloadOrders)
+                    .then(reload)
                     .catch((caught: unknown) => window.alert(messageOf(caught)))
                 }
               />

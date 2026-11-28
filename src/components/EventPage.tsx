@@ -59,7 +59,7 @@ export default function EventPage({
               <p className="event-page-note">
                 {isPast
                   ? "This event has finished and is kept in the TickShow archive."
-                  : "Checkout is currently a demo: no real payment is taken and no valid entry ticket is issued."}
+                  : "Tickets are sold through Stripe TEST MODE. Use a Stripe test card; no real money is charged."}
               </p>
             </div>
 

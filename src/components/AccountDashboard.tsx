@@ -3,29 +3,26 @@ import type { Database } from "../types/database";
 import { formatTaka } from "../data/bookings";
 import { useAuth } from "../lib/auth";
 import { requireSupabase } from "../lib/supabase";
-import { downloadTicketPdf, sendTicketEmail } from "../lib/ticket";
+import { sendPaidOrderTickets } from "../lib/payments";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 import "./AccountDashboard.css";
 
-type Booking = Database["public"]["Tables"]["storefront_bookings"]["Row"];
+type OrderView = Pick<
+  Database["public"]["Tables"]["orders"]["Row"],
+  "id" | "event_id" | "order_number" | "status" | "total_amount" | "currency" | "created_at" | "paid_at" | "ticket_email_status"
+> & { eventTitle: string };
 
 export default function AccountDashboard() {
-  const { user, signOut, updateProfileName, deleteAccount } = useAuth();
+  const { user, signOut, updateProfileName } = useAuth();
   const [name, setName] = useState("");
   const [savedName, setSavedName] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [orders, setOrders] = useState<OrderView[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [notice, setNotice] = useState("");
   const [savingName, setSavingName] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
-  const [showDeletePassword, setShowDeletePassword] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [downloadingReference, setDownloadingReference] = useState("");
-  const [emailingReference, setEmailingReference] = useState("");
+  const [emailingId, setEmailingId] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -34,19 +31,29 @@ export default function AccountDashboard() {
     Promise.all([
       requireSupabase().from("profiles").select("full_name").eq("id", user.id).single(),
       requireSupabase()
-        .from("storefront_bookings")
-        .select("*")
+        .from("orders")
+        .select(
+          "id, event_id, order_number, status, total_amount, currency, created_at, paid_at, ticket_email_status",
+        )
         .eq("customer_id", user.id)
         .order("created_at", { ascending: false }),
+      requireSupabase().from("events").select("id, title"),
     ])
-      .then(([profile, result]) => {
+      .then(([profile, result, eventRows]) => {
         if (profile.error) throw new Error(profile.error.message);
         if (result.error) throw new Error(result.error.message);
+        if (eventRows.error) throw new Error(eventRows.error.message);
         if (!active) return;
         const fullName = profile.data.full_name ?? "";
+        const titles = new Map((eventRows.data ?? []).map((row) => [row.id, row.title]));
         setName(fullName);
         setSavedName(fullName);
-        setBookings(result.data ?? []);
+        setOrders(
+          (result.data ?? []).map((row) => ({
+            ...row,
+            eventTitle: titles.get(row.event_id) ?? "TickShow event",
+          })) as OrderView[],
+        );
       })
       .catch((caught: unknown) => {
         if (active) {
@@ -85,72 +92,22 @@ export default function AccountDashboard() {
     }
   };
 
-  const handleTicketDownload = async (booking: Booking) => {
-    if (downloadingReference) return;
-    setDownloadingReference(booking.booking_reference);
+  const handleTicketEmail = async (order: OrderView) => {
+    setEmailingId(order.id);
     setPageError("");
     setNotice("");
     try {
-      const didDownload = await downloadTicketPdf(booking.booking_reference);
-      setBookings((current) =>
+      await sendPaidOrderTickets(order.id, order.ticket_email_status === "sent");
+      setOrders((current) =>
         current.map((item) =>
-          item.id === booking.id
-            ? ({
-                ...item,
-                ticket_downloaded_at:
-                  item.ticket_downloaded_at ?? new Date().toISOString(),
-              } as Booking)
-            : item,
+          item.id === order.id ? { ...item, ticket_email_status: "sent" } : item,
         ),
       );
-      setNotice(
-        didDownload
-          ? "Your demo PDF ticket has been downloaded."
-          : "This ticket PDF has already been downloaded once.",
-      );
+      setNotice("Your ticket email has been queued. A fresh QR code invalidates earlier tickets.");
     } catch (caught: unknown) {
-      setPageError(caught instanceof Error ? caught.message : "Could not download the ticket.");
+      setPageError(caught instanceof Error ? caught.message : "Could not send the ticket email.");
     } finally {
-      setDownloadingReference("");
-    }
-  };
-
-  const handleTicketEmail = async (booking: Booking) => {
-    if (emailingReference) return;
-    setEmailingReference(booking.booking_reference);
-    setPageError("");
-    setNotice("");
-    try {
-      await sendTicketEmail(booking.booking_reference, "resend");
-      setBookings((current) =>
-        current.map((item) =>
-          item.id === booking.id
-            ? ({ ...item, ticket_emailed_at: new Date().toISOString() } as Booking)
-            : item,
-        ),
-      );
-      setNotice("The updated ticket was emailed. The previous QR codes are no longer valid.");
-    } catch (caught: unknown) {
-      setPageError(
-        caught instanceof Error
-          ? `Could not send the ticket email: ${caught.message}`
-          : "Could not send the ticket email.",
-      );
-    } finally {
-      setEmailingReference("");
-    }
-  };
-
-  const removeAccount = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setDeleting(true);
-    setDeleteError("");
-    try {
-      await deleteAccount(deletePassword);
-      window.location.assign(`${window.location.origin}/#/account-deleted`);
-    } catch (caught: unknown) {
-      setDeleteError(caught instanceof Error ? caught.message : "Could not delete the account.");
-      setDeleting(false);
+      setEmailingId("");
     }
   };
 
@@ -160,9 +117,7 @@ export default function AccountDashboard() {
         <Brand />
         <div className="account-topbar-actions">
           <a href="#/events">Explore events</a>
-          <button type="button" onClick={() => void handleSignOut()}>
-            Sign out
-          </button>
+          <button type="button" onClick={() => void handleSignOut()}>Sign out</button>
         </div>
       </header>
       <main className="account-main">
@@ -175,69 +130,52 @@ export default function AccountDashboard() {
         {pageError && <p className="account-error" role="alert">{pageError}</p>}
         {notice && <p className="account-notice" role="status">{notice}</p>}
 
-        <section className="account-panel" aria-labelledby="account-bookings-title">
+        <section className="account-panel" aria-labelledby="account-orders-title">
           <div className="account-panel-heading">
             <div>
               <p className="section-kicker">Your activity</p>
-              <h2 id="account-bookings-title">Bookings &amp; tickets</h2>
+              <h2 id="account-orders-title">Orders &amp; tickets</h2>
             </div>
           </div>
-          <p className="account-disclaimer">
-            Demo checkout is not a real payment and these downloads are not valid for event entry.
-          </p>
           {loading ? (
-            <p className="account-empty">Loading your bookings…</p>
-          ) : bookings.length ? (
+            <p className="account-empty">Loading your orders…</p>
+          ) : orders.length ? (
             <div className="account-booking-list">
-              {bookings.map((booking) => (
-                <article className="account-booking" key={booking.id}>
+              {orders.map((order) => (
+                <article className="account-booking" key={order.id}>
                   <div>
-                    <span className="account-booking-status">DEMO / TEST booking</span>
-                    <h3>{booking.event_title}</h3>
+                    <span className="account-booking-status">{order.status}</span>
+                    <h3>{order.eventTitle}</h3>
                     <p>
-                      {booking.booking_reference} · {booking.quantity} ticket(s) ·{" "}
-                      {new Date(booking.created_at).toLocaleString()}
+                      {order.order_number} · {formatTaka(order.total_amount)} ·{" "}
+                      {new Date(order.created_at).toLocaleString()}
                     </p>
-                    <p>
-                      {booking.event_date_label ?? "Date to be announced"}
-                      {booking.event_venue ? ` · ${booking.event_venue}` : ""}
-                      {booking.event_location ? `, ${booking.event_location}` : ""}
-                    </p>
-                    <strong>{formatTaka(booking.total_amount)}</strong>
+                    <a href={`#/payment/confirmation?order=${encodeURIComponent(order.order_number)}`}>
+                      View confirmation
+                    </a>
                   </div>
-                  <div className="account-booking-actions">
-                    <button
-                      className="button button-primary"
-                      type="button"
-                      onClick={() => void handleTicketEmail(booking)}
-                      disabled={Boolean(emailingReference)}
-                    >
-                      {emailingReference === booking.booking_reference
-                        ? "Sending email…"
-                        : booking.ticket_emailed_at
-                          ? "Resend ticket email"
-                          : "Email ticket"}
-                      <Icon name="mail" size={16} />
-                    </button>
-                    <button
-                      className="button button-dark"
-                      type="button"
-                      onClick={() => void handleTicketDownload(booking)}
-                      disabled={Boolean(booking.ticket_downloaded_at) || Boolean(downloadingReference)}
-                    >
-                      {booking.ticket_downloaded_at
-                        ? "Ticket downloaded"
-                        : downloadingReference === booking.booking_reference
-                          ? "Preparing PDF…"
-                          : "Download PDF ticket"}
-                      {!booking.ticket_downloaded_at && <Icon name="download" size={16} />}
-                    </button>
-                  </div>
+                  {order.status === "paid" && (
+                    <div className="account-booking-actions">
+                      <button
+                        className="button button-primary"
+                        type="button"
+                        onClick={() => void handleTicketEmail(order)}
+                        disabled={Boolean(emailingId)}
+                      >
+                        {emailingId === order.id
+                          ? "Sending email…"
+                          : order.ticket_email_status === "sent"
+                            ? "Resend ticket email"
+                            : "Email ticket"}
+                        <Icon name="mail" size={16} />
+                      </button>
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
           ) : (
-            <p className="account-empty">No bookings yet. Your demo bookings will appear here.</p>
+            <p className="account-empty">No orders yet. Confirmed orders will appear here.</p>
           )}
         </section>
 
@@ -270,39 +208,10 @@ export default function AccountDashboard() {
             <p className="section-kicker">Account controls</p>
             <h2 id="account-delete-title">Delete account</h2>
             <p>
-              Permanently delete your account and its demo bookings. Confirm your password to continue.
+              Permanently delete your sign-in and profile. Financial records are anonymized and
+              retained. You will confirm your password on the next page.
             </p>
-            {!deleteOpen ? (
-              <button className="button button-dark" type="button" onClick={() => setDeleteOpen(true)}>
-                Delete my account
-              </button>
-            ) : (
-              <form className="account-form" onSubmit={removeAccount}>
-                <label htmlFor="delete-password">Current password</label>
-                <div className="auth-password-wrap">
-                  <input
-                    id="delete-password"
-                    type={showDeletePassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    value={deletePassword}
-                    onChange={(event) => setDeletePassword(event.target.value)}
-                    required
-                  />
-                  <button type="button" onClick={() => setShowDeletePassword((value) => !value)}>
-                    {showDeletePassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-                {deleteError && <p className="account-error" role="alert">{deleteError}</p>}
-                <div className="account-delete-actions">
-                  <button className="button button-dark" type="button" onClick={() => setDeleteOpen(false)}>
-                    Cancel
-                  </button>
-                  <button className="button button-danger" type="submit" disabled={deleting}>
-                    {deleting ? "Deleting…" : "Permanently delete"}
-                  </button>
-                </div>
-              </form>
-            )}
+            <a className="button button-dark" href="#/account/delete">Delete my account</a>
           </section>
         </div>
       </main>

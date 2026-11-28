@@ -1169,6 +1169,10 @@ export type Database = {
           created_at: string;
         }[];
       };
+      admin_set_order_status: {
+        Args: { p_order_id: string; p_status: Database["public"]["Enums"]["order_status"] };
+        Returns: undefined;
+      };
       assign_user_role: {
         Args: { p_user_id: string; p_role: Database["public"]["Enums"]["app_role"] };
         Returns: Database["public"]["Tables"]["user_roles"]["Row"] | null;

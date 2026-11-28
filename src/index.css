@@ -1613,6 +1613,110 @@ textarea:focus-visible {
   opacity: 0.6;
 }
 
+.button-danger {
+  border: 1px solid #8f2c20;
+  border-radius: var(--radius-control);
+  background: #ca4b3a;
+  color: #fff;
+}
+
+.button-danger:hover {
+  background: #a83a2b;
+}
+
+.button-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.payment-card {
+  gap: 18px;
+}
+
+.payment-mode-notice {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.payment-facts {
+  display: grid;
+  gap: 0;
+  margin: 4px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.payment-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.payment-facts > div:last-child {
+  border-bottom: 0;
+}
+
+.payment-facts dt {
+  color: var(--ink-2);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.payment-facts dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.payment-ticket-actions {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.payment-ticket-actions p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.payment-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.error-card {
+  gap: 14px;
+}
+
+.error-code {
+  margin: 0;
+  color: #ca4b3a;
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
 /* Footer pages */
 
 .footer-page {

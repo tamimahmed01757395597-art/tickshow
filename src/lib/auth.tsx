@@ -10,7 +10,6 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 import { isSupabaseConfigured, requireSupabase, supabase } from "./supabase";
 import { sha256Hex } from "./tokens";
-import { clearBookings } from "../data/bookings";
 import type { Database } from "../types/database";
 
 export type AppRole = Database["public"]["Enums"]["app_role"];
@@ -167,8 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {
-    const { error } = await requireSupabase().auth.updateUser({ password });
-    if (error) throw error;
+    await updatePasswordForRecovery(password);
   }, []);
 
   const updateProfileName = useCallback(
@@ -200,7 +198,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (signInError) throw signInError;
       const { error } = await client.rpc("delete_own_account");
       if (error) throw error;
-      clearBookings();
       const { error: signOutError } = await client.auth.signOut({ scope: "local" });
       if (signOutError) throw signOutError;
       setSession(null);
@@ -250,6 +247,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export async function updatePasswordForRecovery(password: string): Promise<void> {
+  const { error } = await requireSupabase().auth.updateUser({ password });
+  if (error) throw error;
 }
 
 export function useAuth(): AuthContextValue {

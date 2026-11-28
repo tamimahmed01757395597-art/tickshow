@@ -7,7 +7,6 @@ type Enums = Database["public"]["Enums"];
 
 type EventRow = Tables["events"]["Row"];
 type OrderRow = Tables["orders"]["Row"];
-type StorefrontBookingRow = Tables["storefront_bookings"]["Row"];
 type PaymentRow = Tables["payments"]["Row"];
 type ReviewRow = Tables["reviews"]["Row"];
 type SupportMessageRow = Tables["support_messages"]["Row"];
@@ -40,7 +39,6 @@ export type CustomerView = {
   created_at: string;
 };
 export type OrderView = OrderRow & { eventTitle: string };
-export type StorefrontBookingView = StorefrontBookingRow;
 export type PaymentView = PaymentRow & { orderNumber: string };
 export type SupportView = ReviewRow & { eventTitle: string; customerName: string };
 export type SupportMessageView = SupportMessageRow;
@@ -78,7 +76,7 @@ export async function fetchOverview(): Promise<Overview> {
   const client = requireSupabase();
   const [
     profiles, assignments, roleRows, events, tickets, orders,
-    payments, reviews, showcaseEvents, demoBookings,
+    payments, reviews, showcaseEvents,
   ] =
     await Promise.all([
       client.from("profiles").select("id", { count: "exact", head: true }),
@@ -90,12 +88,11 @@ export async function fetchOverview(): Promise<Overview> {
       client.from("payments").select("amount, currency, status"),
       client.from("reviews").select("id, status"),
       client.from("storefront_events").select("id, event_group, is_visible"),
-      client.from("storefront_bookings").select("id, ticket_email_status"),
     ]);
 
   for (const result of [
     profiles, assignments, roleRows, events, tickets, orders,
-    payments, reviews, showcaseEvents, demoBookings,
+    payments, reviews, showcaseEvents,
   ]) {
     if (result.error) throw new Error(result.error.message);
   }
@@ -108,7 +105,6 @@ export async function fetchOverview(): Promise<Overview> {
   const orderRows = orders.data ?? [];
   const paymentRows = payments.data ?? [];
   const showcaseRows = showcaseEvents.data ?? [];
-  const demoBookingRows = demoBookings.data ?? [];
   const succeededPayments = paymentRows.filter((row) => row.status === "succeeded");
 
   const ordersByEvent = new Map<string, number>();
@@ -138,7 +134,6 @@ export async function fetchOverview(): Promise<Overview> {
         value: String(showcaseRows.filter((row) => row.is_visible).length),
         note: "Shown on the storefront",
       },
-      { label: "Demo bookings", value: String(demoBookingRows.length), note: "Not paid orders" },
       {
         label: "Pending approvals",
         value: String(eventRows.filter((row) => row.approval_status === "pending").length),
@@ -175,13 +170,6 @@ export async function fetchOverview(): Promise<Overview> {
           showcaseRows.filter((row) => row.event_group === "ongoing").length
         } ongoing / ${showcaseRows.filter((row) => row.event_group === "past").length} past`,
         note: `${showcaseRows.filter((row) => row.is_visible).length} visible listings`,
-      },
-      {
-        label: "Demo ticket email delivery",
-        value: `${demoBookingRows.filter((row) => row.ticket_email_status === "sent").length} / ${
-          demoBookingRows.length
-        } sent`,
-        note: "Booking ticket emails; separate from paid orders",
       },
       {
         label: "Payment success and failure rates",
@@ -373,15 +361,6 @@ export async function fetchOrders(): Promise<OrderView[]> {
   }));
 }
 
-export async function fetchStorefrontBookings(): Promise<StorefrontBookingView[]> {
-  const { data, error } = await requireSupabase()
-    .from("storefront_bookings")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
 export async function fetchPayments(): Promise<PaymentView[]> {
   const client = requireSupabase();
   const [payments, orders, webhooks] = await Promise.all([
@@ -496,10 +475,10 @@ export async function updateProfileStatus(
 }
 
 export async function updateOrderStatus(id: string, status: Enums["order_status"]): Promise<void> {
-  const patch: Tables["orders"]["Update"] = { status };
-  if (status === "paid") patch.paid_at = new Date().toISOString();
-  if (status === "cancelled") patch.cancelled_at = new Date().toISOString();
-  const { error } = await requireSupabase().from("orders").update(patch).eq("id", id);
+  const { error } = await requireSupabase().rpc("admin_set_order_status", {
+    p_order_id: id,
+    p_status: status,
+  });
   if (error) throw new Error(error.message);
 }
 

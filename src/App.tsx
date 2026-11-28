@@ -7,7 +7,12 @@ import CheckoutPage from "./components/CheckoutPage";
 import CoverflowCarousel from "./components/CoverflowCarousel";
 import EventPage from "./components/EventPage";
 import OrderPage from "./components/OrderPage";
-import { findBooking } from "./data/bookings";
+import PaymentResultPage from "./components/PaymentResultPage";
+import type { PaymentResultStatus } from "./components/PaymentResultPage";
+import ResetPasswordPage from "./components/ResetPasswordPage";
+import AccountDeletionPage from "./components/AccountDeletionPage";
+import AccountDeletionStatusPage from "./components/AccountDeletionStatusPage";
+import ErrorPage from "./components/ErrorPage";
 import { Icon } from "./components/Icon";
 import type { IconName } from "./components/Icon";
 import FooterPage from "./components/FooterPages";
@@ -442,7 +447,13 @@ function requestedDestination() {
   const query = window.location.hash.split("?")[1] ?? "";
   const requested = new URLSearchParams(query).get("next") ?? "";
   if (requested === "admin") return "admin";
-  if (/^checkout\/[a-z0-9-]+$/i.test(requested)) return requested;
+  if (
+    /^(checkout\/[a-z0-9-]+|reset-password|account\/delete|payment\/(confirmation|failed|cancelled|processing)(\?order=[a-z0-9-]+)?)$/i.test(
+      requested,
+    )
+  ) {
+    return requested;
+  }
   return "account";
 }
 
@@ -481,7 +492,7 @@ function AuthPage({ mode }: { mode: AuthMode }) {
         await signIn(email, password);
         const roles = await refresh();
         if (isStaff && !roles.includes("admin")) {
-          window.location.hash = "#/admin";
+          window.location.hash = "#/error/403";
           return;
         }
         window.location.hash = destinationHash(destination);
@@ -642,16 +653,18 @@ function TicketVerificationPage({
   useEffect(() => {
     let active = true;
     const verify = async () => {
+      if (!ticketId) {
+        if (active) {
+          setVerificationError("Legacy booking references are no longer supported for ticket verification.");
+          setLoading(false);
+        }
+        return;
+      }
       try {
-        const response = ticketId
-          ? await requireSupabase().rpc("verify_ticket_by_id", {
-              p_ticket_id: ticketId,
-              p_ticket_token: token,
-            })
-          : await requireSupabase().rpc("verify_storefront_ticket", {
-              p_booking_reference: reference ?? "",
-              p_ticket_token: token,
-            });
+        const response = await requireSupabase().rpc("verify_ticket_by_id", {
+          p_ticket_id: ticketId,
+          p_ticket_token: token,
+        });
         if (!active) return;
         if (response.error) throw new Error(response.error.message);
         const result = response.data?.[0];
@@ -666,7 +679,7 @@ function TicketVerificationPage({
               ? result.booking_reference ?? reference ?? ""
               : reference ?? "",
             ticket_number: "ticket_number" in result ? result.ticket_number ?? 1 : 1,
-            is_demo: "is_demo" in result ? result.is_demo : true,
+            is_demo: "is_demo" in result ? result.is_demo === true : false,
           });
         } else {
           setVerificationError(
@@ -696,7 +709,13 @@ function TicketVerificationPage({
           <div className="auth-card">
             <p className="auth-card-kicker">Ticket verification</p>
             <h1 id="ticket-verification-title">
-              {loading ? "Checking ticket…" : valid ? details?.is_demo ? "Valid demo ticket" : "Valid ticket" : "Ticket not valid"}
+              {loading
+                ? "Checking ticket…"
+                : valid
+                  ? details?.is_demo
+                    ? "Legacy demo record"
+                    : "Valid ticket"
+                  : "Ticket not valid"}
             </h1>
             {loading ? (
               <p className="auth-card-intro">Verifying the unique QR code…</p>
@@ -710,6 +729,11 @@ function TicketVerificationPage({
                     "Venue to be announced"}
                 </p>
                 <p><strong>Reference:</strong> {details.booking_reference}</p>
+                {details.is_demo && (
+                  <p className="auth-error" role="alert">
+                    This is a legacy demo record and is not valid for entry.
+                  </p>
+                )}
               </>
             ) : (
               <p className="auth-error" role="alert">
@@ -794,15 +818,23 @@ function AuthCallbackPage() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const isRecovery = flow === "recovery";
 
   useEffect(() => {
-    if (flow === "deleted") return;
+    if (flow === "deleted") {
+      window.location.replace("/#/account/deletion-status?state=complete");
+      return;
+    }
     let active = true;
     const verifyLink = async () => {
       try {
         const { data, error: sessionError } = await requireSupabase().auth.getSession();
         if (!active) return;
         if (sessionError) setError(sessionError.message);
+        if (data.session && isRecovery) {
+          window.location.replace("/#/reset-password");
+          return;
+        }
         setHasSession(Boolean(data.session));
       } catch (caught: unknown) {
         if (active) {
@@ -836,11 +868,14 @@ function AuthCallbackPage() {
   };
 
   const safeDestination =
-    destination === "admin" || destination === "account" || /^checkout\/[a-z0-9-]+$/i.test(destination)
+    destination === "admin" ||
+    destination === "account" ||
+    destination === "reset-password" ||
+    destination === "account/delete" ||
+    /^checkout\/[a-z0-9-]+$/i.test(destination)
       ? destination
       : "account";
   const continueHref = `/#/${safeDestination}`;
-  const isRecovery = flow === "recovery";
 
   return (
     <div className="auth-page">
@@ -939,29 +974,11 @@ function AccountRequiredPage({ next }: { next: string }) {
           <div className="auth-card">
             <p className="auth-card-kicker">Your account</p>
             <h1 id="account-required-title">Sign in to continue</h1>
-            <p className="auth-card-intro">Create an account or log in before booking. Your bookings will be saved to your dashboard.</p>
+            <p className="auth-card-intro">Create an account or log in before checkout. Your verified orders will appear in your dashboard.</p>
             <div className="account-required-actions">
               <a className="button button-primary" href={`#/signup?next=${encoded}`}>Create account</a>
               <a className="button button-dark" href={`#/login?next=${encoded}`}>Log in</a>
             </div>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-function AccountDeletedPage() {
-  return (
-    <div className="auth-page">
-      <div className="auth-topbar"><Brand /></div>
-      <main className="auth-main auth-main-centered">
-        <section className="auth-panel">
-          <div className="auth-card">
-            <p className="auth-card-kicker">Account deleted</p>
-            <h1>Your account is deleted</h1>
-            <p className="auth-card-intro">Your account and its associated bookings have been permanently removed.</p>
-            <a className="button button-primary auth-submit" href="/">Back to TickShow</a>
           </div>
         </section>
       </main>
@@ -974,12 +991,16 @@ type Route =
   | { name: "admin" }
   | { name: "auth"; mode: AuthMode }
   | { name: "forgot-password" }
+  | { name: "reset-password" }
   | { name: "auth-callback" }
   | { name: "account" }
-  | { name: "account-deleted" }
+  | { name: "account-delete" }
+  | { name: "account-deletion-status" }
+  | { name: "error"; code: string }
   | { name: "event"; id: string }
   | { name: "checkout"; id: string }
   | { name: "order"; reference: string }
+  | { name: "payment"; status: PaymentResultStatus; reference: string | null }
   | { name: "ticket"; reference: string | null; ticketId: string | null; token: string }
   | { name: "page"; page: FooterPageKey };
 
@@ -1003,13 +1024,20 @@ function getRoute(): Route {
   if (!hash.startsWith("#/")) return { name: "home" };
   const value = hash.slice(2).toLowerCase();
   const [path, queryString] = value.split("?");
+  const params = new URLSearchParams(queryString ?? "");
+  if (path === "" || path === "home") return { name: "home" };
   if (path === "admin") return { name: "admin" };
   if (path === "login" || path === "signup") return { name: "auth", mode: path };
   if (path === "staff-access") return { name: "auth", mode: "staff-login" };
   if (path === "staff-invite") return { name: "auth", mode: "staff-signup" };
   if (path === "forgot-password") return { name: "forgot-password" };
+  if (path === "reset-password") return { name: "reset-password" };
   if (path === "account") return { name: "account" };
-  if (path === "account-deleted") return { name: "account-deleted" };
+  if (path === "account/delete") return { name: "account-delete" };
+  if (path === "account/deletion-status") return { name: "account-deletion-status" };
+  if (path.startsWith("error/")) {
+    return { name: "error", code: decodeURIComponent(path.slice("error/".length)) };
+  }
   if (path.startsWith("event/")) {
     return { name: "event", id: decodeURIComponent(path.slice("event/".length)) };
   }
@@ -1018,6 +1046,19 @@ function getRoute(): Route {
   }
   if (path.startsWith("order/")) {
     return { name: "order", reference: decodeURIComponent(path.slice("order/".length)) };
+  }
+  const PAYMENT_STATUSES: PaymentResultStatus[] = [
+    "confirmation",
+    "processing",
+    "failed",
+    "cancelled",
+  ];
+  if (path.startsWith("payment/")) {
+    const status = path.slice("payment/".length) as PaymentResultStatus;
+    if (PAYMENT_STATUSES.includes(status)) {
+      return { name: "payment", status, reference: params.get("order") };
+    }
+    return { name: "error", code: "404" };
   }
   if (path.startsWith("ticket/")) {
     const query = new URLSearchParams(queryString ?? "");
@@ -1033,7 +1074,7 @@ function getRoute(): Route {
   if (FOOTER_ROUTES.includes(path as FooterPageKey)) {
     return { name: "page", page: path as FooterPageKey };
   }
-  return { name: "home" };
+  return { name: "error", code: "404" };
 }
 
 function byDisplayOrder(a: StorefrontEvent, b: StorefrontEvent) {
@@ -1059,6 +1100,30 @@ function App() {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
+
+  useEffect(() => {
+    const privateRoutes = new Set([
+      "admin",
+      "auth",
+      "forgot-password",
+      "reset-password",
+      "auth-callback",
+      "account",
+      "account-delete",
+      "account-deletion-status",
+      "checkout",
+      "order",
+      "payment",
+      "ticket",
+      "error",
+    ]);
+    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (robots) {
+      robots.content = privateRoutes.has(route.name)
+        ? "noindex,nofollow,noarchive"
+        : "index,follow";
+    }
+  }, [route]);
 
   useEffect(() => {
     if (route.name !== "home") {
@@ -1121,11 +1186,18 @@ function App() {
   if (route.name === "forgot-password") {
     return <ForgotPasswordPage />;
   }
+  if (route.name === "reset-password") {
+    return <ResetPasswordPage />;
+  }
   if (route.name === "auth-callback") {
     return <AuthCallbackPage />;
   }
-  if (route.name === "account-deleted") {
-    return <AccountDeletedPage />;
+  if (route.name === "account-deletion-status") {
+    return <AccountDeletionStatusPage />;
+  }
+  if (route.name === "account-delete") {
+    if (authLoading) return <div className="account-empty">Loading account…</div>;
+    return user ? <AccountDeletionPage /> : <ErrorPage code="401" />;
   }
   if (route.name === "account") {
     if (authLoading) return <div className="account-empty">Loading account…</div>;
@@ -1133,6 +1205,12 @@ function App() {
   }
   if (route.name === "admin") {
     return <AdminPanel />;
+  }
+  if (route.name === "error") {
+    return <ErrorPage code={route.code} />;
+  }
+  if (route.name === "payment") {
+    return <PaymentResultPage status={route.status} reference={route.reference} />;
   }
   if (route.name === "ticket") {
     return (
@@ -1153,11 +1231,6 @@ function App() {
   const isPastEvent = activeEvent?.showcaseGroup === "past";
   const checkoutEvent =
     route.name === "checkout" ? showcaseEvents.find((event) => event.id === route.id) : undefined;
-  const booking = route.name === "order" ? findBooking(route.reference) : undefined;
-  const bookingEvent =
-    booking !== undefined
-      ? showcaseEvents.find((event) => event.id === booking.eventId)
-      : undefined;
 
   let pageContent;
   if (route.name === "home") {
@@ -1197,12 +1270,7 @@ function App() {
       )
     ) : <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />;
   } else if (route.name === "order") {
-    pageContent =
-      booking !== undefined && bookingEvent !== undefined ? (
-        <OrderPage booking={booking} event={bookingEvent} />
-      ) : (
-        <FooterPage page="events" events={liveEvents} onOpenEvent={openEvent} />
-      );
+    pageContent = <OrderPage reference={route.reference} />;
   } else {
     pageContent = (
       <FooterPage

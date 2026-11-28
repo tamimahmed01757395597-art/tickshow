@@ -13,7 +13,11 @@
 | Primary stack | React 19 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4 + Motion 14 + Supabase JS 2 |
 | Backend | Supabase PostgreSQL, Auth, Storage, RLS and `SECURITY DEFINER` RPCs |
 | Deployment | Vite SPA on Vercel; database/auth/storage on Supabase |
-| Status | Backend-connected admin and storefront showcase are live; checkout/payments remain demo-only |
+| Status | Backend-connected admin/showcase plus Stripe TEST MODE checkout and signed webhooks; live verification pending deployment credentials |
+
+> **Current implementation note (28 November 2026):** the demo checkout, localStorage booking store and DEMO / TEST ticket delivery have been removed from active use. Checkout now creates a server-priced order and redirects to Stripe TEST MODE; signed webhooks are the only source of paid status and ticket issuance. Legacy historical demo rows remain preserved but are service-role only and cannot verify as entry tickets.
+>
+> The sections below are a historical snapshot of the earlier demo-era implementation. For the current contract, see `DEMO_REMOVAL_REPORT.md`, `STRIPE_TEST_MODE_SETUP.md`, `SECURITY_AUDIT.md`, `API_SECURITY_REPORT.md`, `ACCOUNT_DELETION_FLOW.md`, `ERROR_HANDLING.md` and `supabase/README.md`.
 
 ---
 
@@ -41,11 +45,11 @@
 
 ## 1. Executive summary
 
-TickShow is a responsive event-discovery website for live events in **Manikganj, Dhaka**. Visitors browse upcoming events, filter by category, open full event detail pages, revisit a 3D "coverflow" lineup, and walk through a **demo** checkout that issues individually QR-coded DEMO / TEST PDF tickets without taking payment.
+TickShow is a responsive event-discovery website for live events in **Manikganj, Dhaka**. Visitors browse upcoming events, filter by category, open full event detail pages, revisit a 3D "coverflow" lineup, and complete a real Stripe **TEST MODE** checkout. Paid status and ticket issuance are driven by signed webhooks, not by browser state.
 
 The original application was a self-contained frontend preview. On **27 November 2026** it was extended with a real backend foundation:
 
-- **Supabase PostgreSQL** with idempotent migrations, customer-owned demo bookings, and private per-ticket token hashes.
+- **Supabase PostgreSQL** with idempotent migrations, customer-owned real orders, private per-ticket token hashes and a Stripe event ledger.
 - **Supabase Auth** for real sign-in/sign-up sessions.
 - **Invite-only administrator registration** using single-use hashed invitation tokens.
 - **Role-based admin panel** with 11 live sections for operational data and role management.
@@ -56,7 +60,7 @@ The original application was a self-contained frontend preview. On **27 November
 
 The public storefront reads from Supabase when configured and populated, with the original built-in sample events retained as a preview fallback. The visual system remains deliberately "maximalist": near-black surfaces, a lime `#A9DD36` accent, large Manrope display type, ticket-styled panels, frosted-glass buttons, a full-bleed video hero, a scrubbing sticky-footer reveal and a draggable coverflow carousel.
 
-The booking funnel is still a **frontend demo**: it stores orders in `localStorage`, takes no payment and does not reserve inventory. The normalized database schema is ready for a future server-side checkout and webhook implementation.
+The booking funnel now uses a service-role RPC for server-side pricing and inventory reservation, Stripe TEST MODE Checkout for payment, and a signed webhook for paid state. No browser role can set an amount or mark an order paid.
 
 ---
 
@@ -65,7 +69,7 @@ The booking funnel is still a **frontend demo**: it stores orders in `localStora
 ### 2.1 What it is
 
 - A **discovery front end**: concerts, sports, festivals, theatre, technology events, workshops, business summits and other experiences around Manikganj.
-- A **demo booking funnel**: event detail → ticket quantity → attendee details → confirmation ticket.
+- A **real TEST payment funnel**: event detail → ticket quantity → attendee details → Stripe Checkout → webhook-confirmed tickets.
 - An **admin operations console**: live Supabase-backed management of events, customers, orders, payments, reviews, roles and invitations.
 - A **design showcase**: coverflow physics, scroll-linked footer reveal, glass surfaces, responsive grids and reduced-motion support.
 
@@ -78,7 +82,7 @@ The booking funnel is still a **frontend demo**: it stores orders in `localStora
 
 ### 2.3 Scope boundary
 
-The storefront, admin panel and authentication are now connected to Supabase. However, the following remain out of scope: Stripe checkout, webhook processing, real payment capture, inventory reservation from the browser, QR generation, customer ticket wallets and per-event staff check-in UI. Checkout remains a demo flow without payment; Contact and Booking support messages are stored in the administrator’s Support inbox, but do not trigger email notifications.
+The storefront, admin panel and authentication are connected to Supabase. Stripe TEST MODE checkout, signed webhook processing, inventory reservation and paid QR ticket issuance are implemented; live verification requires deployed credentials. Per-event staff check-in UI remains out of scope. Contact and Booking support messages are stored in the administrator’s Support inbox and do not trigger email notifications.
 
 ---
 
@@ -122,7 +126,7 @@ Later work in the working tree added migration `0016_grants_and_privileges.sql`,
 - **Hash routing instead of a router library.** `getRoute()` parses `window.location.hash`, so static hosting needs no rewrite rules.
 - **Single-file production build.** `vite-plugin-singlefile` inlines CSS and JS into `dist/index.html`.
 - **Publishable client only.** The browser imports `@supabase/supabase-js` with only the URL and anon key. The service-role key is never used in `VITE_` variables or frontend code.
-- **Linked showcase and event catalog.** `public.storefront_events` owns storefront presentation. Admins enter the organizer name as plain text; showcase records with event times and capacity create a linked draft/pending `public.events` record and a General Admission inventory row. Showcase edits keep those catalog fields in sync. Each event can also select a built-in ticket style and upload JPEG/PNG artwork, which is snapshotted onto bookings for consistent ticket PDFs. The demo booking flow remains separate from normalized inventory sales and orders.
+- **Linked showcase and event catalog.** `public.storefront_events` owns storefront presentation. Admins enter the organizer name as plain text; showcase records with event times and capacity create a linked draft/pending `public.events` record and a General Admission inventory row. Showcase edits keep those catalog fields in sync. Each event can also select a built-in ticket style and upload JPEG/PNG artwork used by the paid-ticket renderer. Checkout uses the normalized catalog price and inventory.
 - **Admin-only event management.** Event creation, updates and deletion require the administrator role; organizer accounts and invitation workflows have been removed.
 - **Secure role assignment.** Clients call `assign_user_role`, `remove_user_role`, `create_admin_invitation` and `accept_admin_invitation` RPCs; direct self-assignment is blocked.
 - **Forward-only migrations.** Schema migrations are applied once in order; migration `0027` is an irreversible cleanup that permanently removes organizer payout/commission history, so back up before applying it.
@@ -206,7 +210,7 @@ D:\maximalism_tickshow
 │   │   ├── Icon.tsx
 │   │   └── OrderPage.tsx
 │   ├── data/
-│   │   ├── bookings.ts              # localStorage demo booking store
+│   │   ├── bookings.ts              # shared checkout constants (demo store removed)
 │   │   └── events.ts                # static preview events and category types
 │   ├── lib/
 │   │   ├── admin.ts                 # admin reads, mutations and showcase helpers
@@ -267,20 +271,23 @@ Vercel (static Vite build)
        ├── AuthProvider ────────────── Supabase Auth
        ├── useStorefrontEvents() ──── public.storefront_events (anon SELECT)
        ├── AdminPanel ─────────────── RLS-protected reads/writes + RPCs
-       └── localStorage ───────────── order-page booking snapshot
+       └──         ├── Stripe Checkout ────────── server-priced TEST payment
+        └── signed webhook ──────────── paid state + ticket issuance
 
 Supabase project
   ├── PostgreSQL
-  │    ├── storefront bookings + per-ticket SHA-256 token hashes
+  │    ├──    │    ├── real orders/payments + per-ticket SHA-256 token hashes
   │    ├── RLS enabled on all application tables
   │    ├── helper functions (SECURITY DEFINER, pinned search_path)
   │    ├── moderation, audit and immutability triggers
   │    └── admin/auth RPCs
   ├── Auth (email/password, sessions)
   └── Storage (4 buckets with path-scoped policies)
-       └── private multi-page demo PDFs
-Supabase Edge Function
-  └── send-ticket-email → jsPDF + QR code → Brevo transactional email
+       └── private paid-ticket PDFs
+Supabase Edge Functions
+  └── create-checkout-session → Stripe TEST Checkout
+  └── stripe-webhook → signed state transitions + ticket issuance
+  └── send-storefront-ticket → jsPDF + QR code → Brevo transactional email
 ```
 
 ### 6.3 Storefront showcase data flow
@@ -331,21 +338,20 @@ audit_logs append-only entries for controlled mutations
 
 Amounts, ownership and approval timestamps remain immutable to client updates; triggers raise exceptions rather than silently accepting changes.
 
-### 6.6 Demo booking flow
+### 6.6 Stripe TEST MODE checkout flow
 
 ```text
 CheckoutPage form submit
-  → create_storefront_booking RPC (database price + customer ownership)
-  → #/order/<reference> → DEMO / TEST order and delivery status
-  → send-ticket-email Edge Function
-      → creates one unique random token and hash per ticket
-      → creates a multipage A6 PDF with a unique QR on each page
-      → stores the private PDF and emails it to the booking's database email
-  → account download → one-time claim + expiring private Storage URL
-  → localStorage["tickshow.bookings"] (max 25)
+  → create-checkout-session (JWT + Zod + rate limit)
+  → create_stripe_checkout_order RPC (service role, database price, reservation)
+  → Stripe Checkout (TEST MODE only)
+  → success/cancel redirect to #/payment/<state>
+  → signed stripe-webhook → idempotent ledger claim
+  → mark_stripe_order_paid → paid order + confirmed inventory + tickets
+  → send-storefront-ticket (paid-only) → private PDF + Brevo email
 ```
 
-No payment is taken and no paid entry ticket is issued. Raw QR tokens are never returned by database booking or ticket queries; only the hash is stored. The verification route checks the ticket ID and raw token against the stored hash and rejects revoked or already checked-in tickets.
+Browser clients never send prices and cannot mark an order paid. Raw QR tokens are never returned by database queries; only the hash is stored. Legacy demo RPCs are `service_role` only and their records cannot verify as valid entry tickets.
 
 ---
 
@@ -416,16 +422,16 @@ Raised-surface section with a lime **Find your next event** CTA.
 - Upcoming events offer **Get tickets**; past events show an archive notice.
 - Uses showcase presentation fields when live data is loaded.
 
-### 7.11 Checkout (demo)
+### 7.11 Checkout (Stripe TEST MODE)
 
 - Quantity stepper 1–8, live total, required attendee fields and sticky order summary.
-- **Pay ৳X** is a demo label; no payment is taken.
+- **Continue to Stripe** redirects to a real TEST MODE Checkout session; no card data touches TickShow.
 - Sales-closed panel for past events.
 
-### 7.12 Order confirmation
+### 7.12 Payment result and order confirmation
 
-- Ticket stub with `TS-XXXXXX` reference and "Show this at the door" panel.
-- Reopenable at `#/order/<reference>` in the same browser.
+- `TS-XXXXXX` reference with confirmation/processing/failed/cancelled states at `#/payment/<state>`.
+- Reopenable at `#/order/<reference>` for a signed-in buyer; paid tickets are issued only by the webhook.
 
 ### 7.13 Booking data helpers
 
@@ -507,7 +513,7 @@ type TickShowEvent = {
 };
 ```
 
-`src/data/events.ts` contains 8 upcoming and 6 past preview events. `src/data/bookings.ts` stores demo bookings in `localStorage["tickshow.bookings"]`.
+`src/data/events.ts` contains 8 upcoming and 6 past preview events. `src/data/bookings.ts` now contains shared checkout constants only; the localStorage demo store was removed.
 
 ### 9.2 Supabase schema groups
 
@@ -564,7 +570,7 @@ Application tables, all with RLS enabled:
 - `ticket_inventory.available_quantity` is generated as `total - reserved - sold`.
 - Payment records contain no card numbers or CVCs; Stripe IDs are unique for idempotency.
 - Tickets store only a SHA-256-shaped QR token hash.
-- Storefront demo ticket token hashes are private to the Edge Function/service role; public verification returns status and ticket details only.
+- Paid ticket token hashes are private to the Edge Function/service role; public verification requires a paid order and returns status/details only. Legacy demo records cannot verify as entry-valid.
 - Admin updates cannot change order amounts or ownership.
 - Payments, refunds, webhook events, audit logs and role writes are not client-writable.
 - Showcase edits cannot change inventory, orders or payments; they only change display data.
@@ -581,11 +587,15 @@ Application tables, all with RLS enabled:
 | `#/categories` | Categories page | Eight category links |
 | `#/about`, `#/how-it-works`, `#/contact`, `#/terms`, `#/privacy`, `#/faqs`, `#/help`, `#/support` | Info pages | Content from `INFO_PAGES` |
 | `#/event/<id>` | Event detail | Resolves against the active showcase list |
-| `#/checkout/<id>` | Checkout | Demo only; past events show "Sales closed" |
-| `#/order/<reference>` | Confirmation | LocalStorage booking lookup |
+| `#/checkout/<id>` | Checkout | Stripe TEST MODE redirect; past events show "Sales closed" |
+| `#/order/<reference>` | Confirmation | Real order lookup for signed-in buyer |
+| `#/payment/<state>` | Payment result | confirmation / processing / failed / cancelled |
+| `#/reset-password` | Recovery | Requires a valid Supabase recovery session |
+| `#/account/delete` | Account deletion | Password + typed confirmation phrase |
+| `#/error/<state>` | Error pages | 400/401/403/404/409/419/429/500/502/503 and specialized states |
 | `#/admin` | Admin console | Authenticated `admin` role required; refreshes roles on open |
 | `#/login`, `#/signup` | Auth pages | Real Supabase auth when configured |
-| Anything else | Home | Safe fallback |
+| Anything else | Error | 404 state; unknown routes are no longer silently treated as home |
 
 ---
 
@@ -601,11 +611,11 @@ Application tables, all with RLS enabled:
 | `src/components/CoverflowCarousel.tsx` | 305 | Motion-driven featured-event carousel |
 | `src/components/FooterReveal.tsx` | 420 | Scroll-scrubbed sticky footer reveal |
 | `src/components/FooterPages.tsx` | 483 | 11 information pages and shared shell |
-| `src/components/CheckoutPage.tsx` | 206 | Demo checkout form and summary |
+| `src/components/CheckoutPage.tsx` | 206 | Stripe TEST MODE checkout form and summary |
 | `src/components/EventPage.tsx` | 116 | Event detail and facts sidebar |
 | `src/components/OrderPage.tsx` | 96 | Confirmation ticket stub |
 | `src/components/Icon.tsx` / `Brand.tsx` | 142 / 18 | SVG icon set and brand mark |
-| `src/data/events.ts` / `bookings.ts` | 371 / 73 | Preview events and localStorage booking helpers |
+| `src/data/events.ts` / `bookings.ts` | 371 / 73 | Preview events and shared checkout constants |
 | `src/lib/supabase.ts` | 28 | Publishable client and config detection |
 | `src/lib/auth.tsx` | 153 | Session, roles, sign-in/sign-up/sign-out |
 | `src/lib/tokens.ts` | 19 | Invite token generation and SHA-256 hashing |
@@ -644,12 +654,12 @@ The stylesheet still contains older `.tick-dialog*` modal rules from an earlier 
 2. Click the centred card or **View details** to open its event page.
 3. Past/archive events do not offer checkout.
 
-### 12.3 Book a demo ticket
+### 12.3 Buy a ticket in TEST MODE
 
 1. Open an upcoming event and press **Get tickets**.
 2. Set quantity 1–8 and fill attendee details.
-3. Press **Pay ৳X** — no payment is taken.
-4. Save the `TS-XXXXXX` confirmation reference for the same browser.
+3. Press **Continue to Stripe** and pay with a Stripe test card.
+4. Return to the confirmation page; the signed webhook marks the order paid and issues tickets.
 
 ### 12.4 First administrator setup
 
@@ -749,12 +759,12 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 
 ### 13.6 Verification checklist
 
-- `npm run db:test` reports **71 passed, 0 failed**.
+- `npm run db:test` reports **140 passed, 0 failed**.
 - `npx tsc --noEmit` passes.
 - `npm run build` regenerates the single-file bundle.
 - `#/login` works with a Supabase user; an admin reaches `#/admin`.
 - Admin tabs load live data; showcase edits appear on the public page.
-- Category filter, carousel controls and demo checkout still work.
+- Category filter, carousel controls and TEST MODE Stripe checkout still work.
 - Vercel preview/production shows no "Backend setup" error after env vars and redeploy.
 
 ---
@@ -766,7 +776,7 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 - **Touch:** 44 px minimum targets, `touch-action: manipulation`, `pan-y` on the carousel and safe-area padding.
 - **Contrast:** light ink on near-black, lime accent for emphasis and dark gradients behind hero text.
 - **Motion:** `prefers-reduced-motion: reduce` disables smooth scrolling, animations and transitions and removes the hero video.
-- **Robustness:** localStorage access is wrapped in `try/catch`; unknown routes and missing entities fall back to valid pages; missing Supabase config shows an explanatory gate.
+- **Robustness:** unknown routes render the 404 state; missing entities and Supabase config show explanatory gates; no localStorage booking store remains.
 
 ---
 
@@ -798,8 +808,8 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 
 ## 16. Limitations, disclaimers and known artefacts
 
-1. **Demo checkout.** No Stripe integration, real payment, webhook processing or inventory reservation is wired to the browser flow.
-2. **Local-only bookings.** Orders live in `localStorage`, capped at 25; clearing browser storage removes them.
+1. **Live payment verification pending.** Stripe TEST MODE checkout, webhooks and paid tickets are implemented but not yet verified with deployed credentials.
+2. **Legacy records preserved.** Historical demo rows remain private and service-role only; they are not client-callable and cannot verify as entry tickets.
 3. **First admin is manual.** One SQL bootstrap is required after the first `auth.users` row exists.
 4. **No live end-to-end credentials in the repo.** Real Supabase keys are never committed; validation uses PGlite and type/build checks.
 5. **Manual SQL-editor ordering matters.** Use `bootstrap.sql` rather than running later migrations individually on a fresh project.
@@ -829,8 +839,8 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 | Hash route families | 10 |
 | Icons | 19 |
 | Max tickets per order | 8 |
-| Booking storage cap | 25 |
-| Database validation | 71 passed, 0 failed |
+| Max tickets per checkout | 8 |
+| Database validation | 140 passed, 0 failed |
 | Production bundle | ~776 KB single HTML file |
 | Documentation edition | v2.0.0, 27 November 2026 |
 
@@ -840,7 +850,7 @@ If not using the Supabase CLI, run **`supabase/bootstrap.sql`** once in the SQL 
 - Routing and showcase grouping: `src/App.tsx` → `getRoute()`, `useStorefrontEvents()`
 - Motion carousel math: `src/components/CoverflowCarousel.tsx` → `coverflowShift()`, `useTransform()`
 - Scroll reveal: `src/components/FooterReveal.tsx` → `useScroll()`, `ResizeObserver`
-- Demo booking persistence: `src/data/bookings.ts`
+- Checkout invocation: `src/lib/checkout.ts`; real orders: `src/lib/payments.ts`
 - Supabase client: `src/lib/supabase.ts`
 - Auth and role refresh: `src/lib/auth.tsx`
 - Invite token hashing: `src/lib/tokens.ts`

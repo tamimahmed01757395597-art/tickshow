@@ -1,6 +1,15 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import QRCode from "npm:qrcode@1.5.4";
 import { jsPDF } from "npm:jspdf@4.2.1";
+import { z } from "npm:zod@3.24.2";
+import {
+  allowRequest,
+  allowedOrigins,
+  corsHeaders,
+  isOriginAllowed,
+  json,
+  readBoundedJson,
+} from "../_shared/http.ts";
 import {
   addTicketPages,
   ticketArtworkFromBlob,
@@ -44,15 +53,38 @@ type Ticket = {
   order_ticket_number: number;
 };
 
+const requestSchema = z.object({
+  action: z.enum(["send", "resend"]),
+  order_id: z.string().uuid(),
+});
+
 function response(
   body: Record<string, unknown>,
   status: number,
   headers: Record<string, string>,
 ) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...headers, "Content-Type": "application/json" },
-  });
+  return json(body, status, headers);
+}
+
+function publicError(caught: unknown): { status: number; message: string } {
+  if (caught instanceof z.ZodError) {
+    return { status: 400, message: "Check the ticket request and try again." };
+  }
+  const message = caught instanceof Error ? caught.message : "Paid ticket request failed.";
+  if (/too large/i.test(message)) {
+    return { status: 413, message: "The ticket request is too large." };
+  }
+  if (/json|body is required|invalid request/i.test(message)) {
+    return { status: 400, message: "Check the ticket request and try again." };
+  }
+  if (/sign in/i.test(message)) return { status: 401, message };
+  if (/not allowed|access/i.test(message)) return { status: 403, message: "You are not allowed to access this order." };
+  if (/already|conflict/i.test(message)) return { status: 409, message };
+  if (/not configured/i.test(message)) return { status: 503, message: "Ticket delivery is not configured." };
+  if (/brevo|email provider/i.test(message)) return { status: 502, message: "The ticket email provider is unavailable." };
+  if (/not found/i.test(message)) return { status: 404, message: "Order not found." };
+  console.error("Paid ticket delivery error:", message);
+  return { status: 500, message: "The ticket email could not be sent. Please try again." };
 }
 
 function secureToken() {
@@ -144,7 +176,6 @@ async function createPaidTicketPdf(
     event_time_label: formatEventTime(event.starts_at),
     event_venue: event.venue_name,
     event_location: [event.venue_address, event.venue_city].filter(Boolean).join(", "),
-    is_demo: false,
     ticket_design: event.ticket_design,
   };
   await addTicketPages(
@@ -173,26 +204,16 @@ async function createPaidTicketPdf(
 
 Deno.serve(async (request) => {
   const siteUrl = Deno.env.get("SITE_URL")?.trim() ?? "";
-  let siteOrigin = "";
-  try {
-    if (siteUrl) siteOrigin = new URL(siteUrl).origin;
-  } catch {
-    siteOrigin = "";
-  }
-  const allowedOrigins = new Set([siteOrigin, "http://localhost:5173", "http://127.0.0.1:5173"]);
-  const origin = request.headers.get("Origin") ?? "";
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": origin && allowedOrigins.has(origin)
-      ? origin
-      : siteOrigin || "null",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
+  const origins = allowedOrigins();
+  const headers = corsHeaders(origins, request);
 
-  if (origin && !allowedOrigins.has(origin)) return response({ error: "Origin is not allowed." }, 403, corsHeaders);
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (request.method !== "POST") return response({ error: "Method not allowed." }, 405, corsHeaders);
+  if (!isOriginAllowed(origins, request)) {
+    return json({ error: "Origin is not allowed." }, 403, headers);
+  }
+  if (request.method === "OPTIONS") return new Response("ok", { status: 204, headers });
+  if (request.method !== "POST") {
+    return json({ error: "Method not allowed." }, 405, headers);
+  }
 
   let userClient: ReturnType<typeof createClient> | null = null;
   let serviceClient: ReturnType<typeof createClient> | null = null;
@@ -222,17 +243,12 @@ Deno.serve(async (request) => {
     });
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) throw new Error("Sign in to access your paid order.");
+    if (!allowRequest(`ticket-email:${authData.user.id}`, 8, 10 * 60_000)) {
+      return json({ error: "Too many ticket email requests. Try again shortly." }, 429, headers);
+    }
     serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const body: unknown = await request.json();
-    if (!body || typeof body !== "object") throw new Error("Invalid request.");
-    const input = body as { action?: unknown; order_id?: unknown };
-    if (input.action !== "send" && input.action !== "resend") {
-      throw new Error("Choose a valid ticket email action.");
-    }
-    if (typeof input.order_id !== "string" || !/^[0-9a-f-]{36}$/i.test(input.order_id)) {
-      throw new Error("A valid order ID is required.");
-    }
+    const input = requestSchema.parse(await readBoundedJson(request, 4 * 1024));
     orderId = input.order_id;
 
     const { data: order, error: orderError } = await serviceClient
@@ -283,7 +299,7 @@ Deno.serve(async (request) => {
           if (error || !data) throw new Error("The saved paid ticket PDF is unavailable.");
           pdfBlob = data;
         } else {
-          return response({ error: "Paid tickets are already being prepared. Try again shortly." }, 409, corsHeaders);
+          return response({ error: "Paid tickets are already being prepared. Try again shortly." }, 409, headers);
         }
       } else {
         assetsClaimed = true;
@@ -425,9 +441,9 @@ Deno.serve(async (request) => {
     if (emailClaimError) throw new Error("Could not claim this ticket email request.");
     if (!emailClaim) {
       if (typedOrder.ticket_email_status === "sent" && input.action === "send") {
-        return response({ sent: false, alreadySent: true }, 200, corsHeaders);
+        return response({ sent: false, alreadySent: true }, 200, headers);
       }
-      return response({ error: "This ticket email is already being prepared." }, 409, corsHeaders);
+      return response({ error: "This ticket email is already being prepared." }, 409, headers);
     }
     emailClaimed = true;
 
@@ -479,7 +495,7 @@ Deno.serve(async (request) => {
       sent: true,
       statusSaved: !finishEmailError,
       message: finishEmailError ? "Email sent, but its delivery status could not be saved." : undefined,
-    }, 200, corsHeaders);
+    }, 200, headers);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "Paid ticket request failed.";
     if (emailClaimed && serviceClient && orderId) {
@@ -498,6 +514,7 @@ Deno.serve(async (request) => {
       });
       if (error) console.error("Could not release paid ticket preparation claim.");
     }
-    return response({ error: message }, message.includes("not found") ? 404 : 400, corsHeaders);
+    const mapped = publicError(caught);
+    return response({ error: mapped.message }, mapped.status, headers);
   }
 });

@@ -9,7 +9,6 @@ export type TicketPdfBooking = {
   event_time_label: string | null;
   event_venue: string | null;
   event_location: string | null;
-  is_demo: boolean;
   ticket_design?: unknown;
   ticket_design_image_path?: string | null;
 };
@@ -185,15 +184,6 @@ export async function addTicketPages(
       const subtitleLines = pdf.splitTextToSize(design.subtitle, pageWidth - 16);
       pdf.text(subtitleLines, titleX, y, { align, maxWidth: pageWidth - 16 });
       y += subtitleLines.length * 4 + 3;
-    }
-
-    if (booking.is_demo) {
-      pdf.setTextColor(154, 43, 25);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(7);
-      pdf.text("DEMO / TEST — NOT VALID FOR PAID ENTRY", 8, y);
-      y += 6;
-      pdf.setTextColor(...secondary);
     }
 
     const rows: Array<[string, string]> = [];

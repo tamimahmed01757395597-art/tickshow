@@ -25,6 +25,7 @@ const ORDER_ITEM = { a: id(411), b: id(412) };
 const PAYMENT = id(501);
 const TICKET = { a: id(601), b: id(602), paid: id(603) };
 const PAID_TICKET_TOKEN = "c".repeat(64);
+const STRIPE_TICKET_TOKEN = "d".repeat(64);
 const STORAGE_OBJECT = { event: id(801), ticketFile: id(802), avatar: id(803) };
 
 const db = new PGlite();
@@ -69,6 +70,8 @@ const asAnon = (fn) => asRole("anon", {}, fn);
 const asAuth = (userId, email, fn) =>
   asRole("authenticated", { sub: userId, role: "authenticated", email }, fn);
 const asService = (fn) => asRole("service_role", { role: "service_role" }, fn);
+const asServiceAs = (userId, email, fn) =>
+  asRole("service_role", { sub: userId, role: "service_role", email }, fn);
 
 async function expectError(name, sql, params = []) {
   try {
@@ -947,7 +950,7 @@ async function testAdminManagement() {
     );
   });
 
-  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+  await asService(async () => {
     await q(
       `UPDATE public.orders
        SET ticket_email_status = 'sending',
@@ -958,7 +961,11 @@ async function testAdminManagement() {
   });
 
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
-    await q("UPDATE public.orders SET ticket_email_status = 'sent' WHERE id = $1", [ORDER.a]);
+    await expectError(
+      "customers cannot write paid ticket delivery fields directly",
+      "UPDATE public.orders SET ticket_email_status = 'sent' WHERE id = $1",
+      [ORDER.a],
+    );
     const deliveryStatus = await q(
       "SELECT ticket_email_status FROM public.orders WHERE id = $1",
       [ORDER.a],
@@ -1016,7 +1023,11 @@ async function testAdminManagement() {
     );
     ok("paid ticket emails are not repeated after successful delivery", alreadySent.rows[0]?.claimed === false);
 
-    await q("UPDATE public.orders SET status = 'cancelled' WHERE id = $1", [ORDER.a]);
+    await expectError(
+      "customers cannot change order status directly",
+      "UPDATE public.orders SET status = 'cancelled' WHERE id = $1",
+      [ORDER.a],
+    );
   });
   await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
     await expectError(
@@ -1036,9 +1047,12 @@ async function testAdminManagement() {
       "UPDATE public.orders SET total_amount = 1 WHERE id = $1",
       [ORDER.a],
     );
-    await q("UPDATE public.orders SET status = 'refunded' WHERE id = $1", [ORDER.a]);
+    await q(
+      "SELECT public.admin_set_order_status($1, 'refunded'::public.order_status)",
+      [ORDER.a],
+    );
     const orderStatus = await q("SELECT status FROM public.orders WHERE id = $1", [ORDER.a]);
-    ok("admin can update order status", orderStatus.rows[0]?.status === "refunded");
+    ok("admin can update order status through the role-checked RPC", orderStatus.rows[0]?.status === "refunded");
 
     const auditCount = await count(
       "SELECT count(*) FROM public.audit_logs WHERE actor_id = $1",
@@ -1245,7 +1259,7 @@ async function testStorefrontShowcase() {
 }
 
 async function testStorefrontBookings() {
-  console.log("\n[7] Authenticated storefront booking persistence");
+  console.log("\n[7] Retired demo bookings and private legacy tickets");
   let primaryBookingReference = "";
   let firstTicketId = "";
   const firstTicketToken = "a".repeat(64);
@@ -1275,25 +1289,56 @@ async function testStorefrontBookings() {
 
   await asAnon(async () => {
     await expectError(
-      "anonymous visitors cannot create bookings",
+      "anonymous visitors cannot create legacy bookings",
       `SELECT * FROM public.create_storefront_booking(
         'booking-upcoming', 1, 'Demo Buyer', 'buyer@example.test', '01234567890'
       )`,
     );
     await expectError(
-      "anonymous clients cannot read booking details",
+      "anonymous clients cannot read legacy booking details",
       "SELECT * FROM public.storefront_bookings",
+    );
+    await expectError(
+      "anonymous clients cannot claim legacy ticket emails",
+      "SELECT public.claim_storefront_ticket_email('TS-0000000000', false)",
+    );
+    await expectError(
+      "anonymous clients cannot call the retired verification RPC",
+      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
+      [id(999), firstTicketToken],
     );
   });
 
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
-    const result = await q(
+    await expectError(
+      "signed-in clients cannot create legacy demo bookings",
       `SELECT * FROM public.create_storefront_booking(
         'booking-upcoming', 2, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
       )`,
     );
+    await expectError(
+      "clients cannot claim legacy ticket emails",
+      "SELECT public.claim_storefront_ticket_email('TS-0000000000', false)",
+    );
+    await expectError(
+      "clients cannot claim legacy ticket downloads",
+      "SELECT public.claim_storefront_ticket_download('TS-0000000000')",
+    );
+    await expectError(
+      "clients cannot call the retired verification RPC",
+      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
+      [id(999), firstTicketToken],
+    );
+  });
+
+  await asServiceAs(USER.customerA, "customer-a@tickshow.test", async () => {
+    const result = await q(
+      `SELECT * FROM public.create_storefront_booking(
+        'booking-upcoming', 2, 'Legacy Buyer', 'customer-a@tickshow.test', '01234567890'
+      )`,
+    );
     ok(
-      "signed-in checkout stores a booking at the database event price",
+      "controlled service migration can preserve a legacy booking at its historical price",
       result.rows[0]?.booking_reference?.startsWith("TS-") &&
         Number(result.rows[0]?.total_amount) === 2400 &&
         !Object.hasOwn(result.rows[0] ?? {}, "ticket_token"),
@@ -1305,10 +1350,10 @@ async function testStorefrontBookings() {
               ticket_design_style, ticket_design_image_path,
               ticket_design->>'primaryColor' AS ticket_primary
        FROM public.storefront_bookings WHERE booking_reference = $1`,
-      [result.rows[0]?.booking_reference],
+      [primaryBookingReference],
     );
     ok(
-      "booking snapshots event details for customer tickets",
+      "legacy booking snapshots event details for historical review",
       snapshot.rows[0]?.event_date_label === "Old sample date" &&
         snapshot.rows[0]?.event_time_label === "8:00 PM" &&
         snapshot.rows[0]?.event_venue === "Test Hall" &&
@@ -1320,95 +1365,57 @@ async function testStorefrontBookings() {
     );
     const ongoing = await q(
       `SELECT * FROM public.create_storefront_booking(
-        'booking-ongoing', 1, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+        'booking-ongoing', 1, 'Legacy Buyer', 'customer-a@tickshow.test', '01234567890'
       )`,
     );
     ok(
-      "ongoing events remain bookable even when their display date has passed",
+      "ongoing legacy bookings remain readable even when their display date has passed",
       Number(ongoing.rows[0]?.total_amount) === 800,
       JSON.stringify(ongoing.rows[0]),
     );
     await expectError(
-      "checkout rejects more than eight tickets",
+      "legacy booking migration still rejects more than eight tickets",
       `SELECT * FROM public.create_storefront_booking(
-        'booking-upcoming', 9, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+        'booking-upcoming', 9, 'Legacy Buyer', 'customer-a@tickshow.test', '01234567890'
       )`,
     );
     await expectError(
-      "checkout rejects an invalid email",
+      "legacy booking migration still rejects an invalid email",
       `SELECT * FROM public.create_storefront_booking(
-        'booking-upcoming', 1, 'Demo Buyer', 'not-an-email', '01234567890'
+        'booking-upcoming', 1, 'Legacy Buyer', 'not-an-email', '01234567890'
       )`,
     );
     await expectError(
-      "checkout requires the authenticated account email",
+      "legacy booking migration still requires the account email",
       `SELECT * FROM public.create_storefront_booking(
-        'booking-upcoming', 1, 'Demo Buyer', 'someone-else@example.test', '01234567890'
+        'booking-upcoming', 1, 'Legacy Buyer', 'someone-else@example.test', '01234567890'
       )`,
     );
     await expectError(
-      "checkout rejects a hidden event",
+      "legacy booking migration still rejects a hidden event",
       `SELECT * FROM public.create_storefront_booking(
-        'booking-hidden', 1, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+        'booking-hidden', 1, 'Legacy Buyer', 'customer-a@tickshow.test', '01234567890'
       )`,
     );
     await expectError(
-      "checkout rejects an event marked past",
+      "legacy booking migration still rejects an event marked past",
       `SELECT * FROM public.create_storefront_booking(
-        'booking-past', 1, 'Demo Buyer', 'customer-a@tickshow.test', '01234567890'
+        'booking-past', 1, 'Legacy Buyer', 'customer-a@tickshow.test', '01234567890'
       )`,
     );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
     const visible = await count("SELECT count(*) FROM public.storefront_bookings");
-    ok("customers can read only their own bookings", visible === 2);
+    ok("legacy buyers can read only their own booking records", visible === 2, `found ${visible}`);
+  });
 
-    const emailClaim = await q(
-      "SELECT public.claim_storefront_ticket_email($1, false) AS claimed",
-      [primaryBookingReference],
-    );
-    const duplicateEmailClaim = await q(
-      "SELECT public.claim_storefront_ticket_email($1, false) AS claimed",
-      [primaryBookingReference],
-    );
-    ok(
-      "ticket email is claimed once and concurrent duplicate sends are blocked",
-      emailClaim.rows[0]?.claimed === true && duplicateEmailClaim.rows[0]?.claimed === false,
-    );
-    await q(
-      "SELECT public.finish_storefront_ticket_email($1, true)",
-      [primaryBookingReference],
-    );
-    const duplicateSentEmail = await q(
-      "SELECT public.claim_storefront_ticket_email($1, false) AS claimed",
-      [primaryBookingReference],
-    );
-    const explicitResend = await q(
-      "SELECT public.claim_storefront_ticket_email($1, true) AS claimed",
-      [primaryBookingReference],
-    );
-    ok(
-      "sent ticket emails are not repeated unless an explicit resend is requested",
-      duplicateSentEmail.rows[0]?.claimed === false && explicitResend.rows[0]?.claimed === true,
-    );
-    await q(
-      "SELECT public.finish_storefront_ticket_email($1, false)",
-      [primaryBookingReference],
-    );
-
-    const assetClaim = await q(
-      "SELECT public.claim_storefront_ticket_assets($1, false) AS claimed",
-      [primaryBookingReference],
-    );
-    const duplicateAssetClaim = await q(
-      "SELECT public.claim_storefront_ticket_assets($1, false) AS claimed",
-      [primaryBookingReference],
-    );
-    ok(
-      "ticket PDF generation uses an atomic booking claim",
-      assetClaim.rows[0]?.claimed === true && duplicateAssetClaim.rows[0]?.claimed === false,
-    );
-    await q(
-      "SELECT public.finish_storefront_ticket_assets($1, true)",
-      [primaryBookingReference],
+  await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
+    const visible = await count("SELECT count(*) FROM public.storefront_bookings");
+    ok("customers cannot read other buyers' legacy booking details", visible === 0);
+    await expectError(
+      "customers cannot query private legacy ticket hashes",
+      "SELECT * FROM public.storefront_tickets",
     );
   });
 
@@ -1431,7 +1438,7 @@ async function testStorefrontBookings() {
     );
     firstTicketId = tickets.rows[0]?.id;
     ok(
-      "a multi-ticket booking receives one private record per ticket",
+      "a legacy multi-ticket booking keeps one private record per ticket",
       tickets.rows.length === 2 &&
         tickets.rows[0]?.ticket_number !== tickets.rows[1]?.ticket_number,
       JSON.stringify(tickets.rows),
@@ -1442,75 +1449,7 @@ async function testStorefrontBookings() {
          AND table_name IN ('storefront_bookings', 'storefront_tickets')
          AND column_name = 'ticket_token'`,
     );
-    ok("raw ticket tokens are not stored in readable columns", rawTokenColumn === 0);
-  });
-
-  await asAnon(async () => {
-    await expectError(
-      "anonymous users cannot read private storefront ticket records",
-      "SELECT * FROM public.storefront_tickets",
-    );
-    const valid = await q(
-      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
-      [firstTicketId, firstTicketToken],
-    );
-    const invalid = await q(
-      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
-      [firstTicketId, "c".repeat(64)],
-    );
-    ok(
-      "verification checks token hashes and returns an explicit invalid result",
-      valid.rows[0]?.valid === true &&
-        valid.rows[0]?.ticket_number === 1 &&
-        invalid.rows[0]?.valid === false,
-    );
-    ok(
-      "ticket verification response never includes stored token hashes",
-      !Object.hasOwn(valid.rows[0] ?? {}, "token_hash"),
-    );
-  });
-
-  await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
-    const visible = await count("SELECT count(*) FROM public.storefront_bookings");
-    ok("customers cannot read other buyers' booking details", visible === 0);
-    await expectError(
-      "customers cannot query private ticket token hashes",
-      "SELECT * FROM public.storefront_tickets",
-    );
-  });
-
-  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
-    const firstDownload = await q(
-      "SELECT * FROM public.claim_storefront_ticket_download($1)",
-      [primaryBookingReference],
-    );
-    const secondDownload = await q(
-      "SELECT * FROM public.claim_storefront_ticket_download($1)",
-      [primaryBookingReference],
-    );
-    ok(
-      "ticket PDF download can be claimed only once",
-      firstDownload.rows[0]?.claimed === true &&
-        secondDownload.rows[0]?.claimed === false &&
-        !Object.hasOwn(firstDownload.rows[0] ?? {}, "ticket_token"),
-    );
-  });
-
-  await asService(async () => {
-    await q(
-      "UPDATE public.storefront_tickets SET checked_in_at = now() WHERE id = $1",
-      [firstTicketId],
-    );
-  });
-  await asAnon(async () => {
-    const used = await q(
-      "SELECT * FROM public.verify_storefront_ticket_by_id($1, $2)",
-      [firstTicketId, firstTicketToken],
-    );
-    ok(
-      "checked-in tickets cannot be accepted again",
-      used.rows[0]?.valid === false && used.rows[0]?.already_checked_in === true,
-    );
+    ok("raw legacy ticket tokens are not stored in readable columns", rawTokenColumn === 0);
   });
 
   await asAuth(USER.admin, "admin@tickshow.test", async () => {
@@ -1519,7 +1458,7 @@ async function testStorefrontBookings() {
        FROM public.storefront_bookings`,
     );
     ok(
-      "admins can review persisted storefront bookings",
+      "admins can review preserved legacy booking records",
       booking.rows.length === 2 &&
         booking.rows.some((row) =>
           row.buyer_email === "customer-a@tickshow.test" && Number(row.total_amount) === 2400,
@@ -1529,8 +1468,286 @@ async function testStorefrontBookings() {
   });
 }
 
+async function testStripeCheckoutAndWebhooks() {
+  console.log("\n[8] Stripe TEST MODE checkout and signed webhook state transitions");
+  const stripePrice = 1750;
+  const payableAmountMinor = stripePrice * 2 * 100;
+  let payableOrderId = "";
+  let payableOrderNumber = "";
+  let failedOrderId = "";
+  let paidTicketId = "";
+
+  await asService(async () => {
+    await q(
+      "UPDATE public.ticket_types SET name = 'General Admission' WHERE id = $1",
+      [TICKET_TYPE],
+    );
+    await q(
+      `INSERT INTO public.storefront_events (
+         slug, title, category, date_label, date_value, organizer_name,
+         price_amount, currency, event_group, is_visible, starts_at, ends_at,
+         capacity, normalized_event_id
+       ) VALUES (
+         'stripe-test-event', 'Stripe Checkout Test Event', 'Concerts & Music',
+         'Test date', CURRENT_DATE + 10, 'Stripe Test Organizer',
+         $1, 'BDT', 'upcoming', true,
+         now() + interval '10 days', now() + interval '11 days', 100,
+         $2
+       )`,
+      [stripePrice, EVENT.publicA],
+    );
+    await q(
+      `UPDATE public.events
+          SET status = 'published', approval_status = 'approved',
+              approved_at = now(), published_at = now()
+        WHERE id = $1`,
+      [EVENT.publicA],
+    );
+    await q(
+      `UPDATE public.ticket_types
+          SET status = 'active', is_active = true, price_amount = $2,
+              currency = 'BDT', sales_start_at = now() - interval '1 hour',
+              sales_end_at = now() + interval '10 days', quantity_total = 100
+        WHERE id = $1`,
+      [TICKET_TYPE, stripePrice],
+    );
+    await q(
+      `UPDATE public.ticket_inventory
+          SET total_quantity = 100, reserved_quantity = 0, sold_quantity = 0
+        WHERE ticket_type_id = $1`,
+      [TICKET_TYPE],
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await expectError(
+      "browser clients cannot create server-priced checkout orders",
+      `SELECT * FROM public.create_stripe_checkout_order(
+        'stripe-test-event', 1, 'Buyer', 'customer-a@tickshow.test', '01234567890', $1
+      )`,
+      [USER.customerA],
+    );
+    await expectError(
+      "browser clients cannot finalize a paid webhook state",
+      "SELECT public.mark_stripe_order_paid($1, 'cs_test_client', 'pi_test_client', 350000, 'BDT')",
+      [id(710)],
+    );
+  });
+  await asAnon(async () => {
+    await expectError(
+      "anonymous callers cannot claim provider webhook events",
+      "SELECT public.claim_payment_webhook_event('evt_test_anon', 'checkout.session.completed', '{}'::jsonb)",
+    );
+  });
+
+  await asServiceAs(USER.customerA, "customer-a@tickshow.test", async () => {
+    const created = await q(
+      `SELECT * FROM public.create_stripe_checkout_order(
+        'stripe-test-event', 2, 'Stripe Buyer', 'customer-a@tickshow.test', '01234567890', $1
+      )`,
+      [USER.customerA],
+    );
+    payableOrderId = created.rows[0]?.order_id;
+    payableOrderNumber = created.rows[0]?.order_number;
+    ok(
+      "server-created checkout order uses the database price for Stripe minor units",
+      Number(created.rows[0]?.amount_minor) === payableAmountMinor &&
+        created.rows[0]?.currency === "BDT",
+      JSON.stringify(created.rows[0]),
+    );
+    const order = await q(
+      "SELECT status, total_amount FROM public.orders WHERE id = $1",
+      [payableOrderId],
+    );
+    const payment = await q(
+      "SELECT status, provider FROM public.payments WHERE order_id = $1",
+      [payableOrderId],
+    );
+    const reservation = await q(
+      "SELECT status FROM public.ticket_inventory_reservations WHERE order_id = $1",
+      [payableOrderId],
+    );
+    const ticketCount = await count(
+      "SELECT count(*) FROM public.tickets WHERE order_id = $1",
+      [payableOrderId],
+    );
+    ok(
+      "a pending order reserves inventory and issues no tickets before payment",
+      order.rows[0]?.status === "pending" &&
+        Number(order.rows[0]?.total_amount) === stripePrice * 2 &&
+        payment.rows[0]?.status === "pending" &&
+        payment.rows[0]?.provider === "stripe" &&
+        reservation.rows[0]?.status === "pending" &&
+        ticketCount === 0,
+      JSON.stringify({ order: order.rows[0], payment: payment.rows[0], reservation: reservation.rows[0], ticketCount }),
+    );
+  });
+
+  await asService(async () => {
+    await expectError(
+      "a verified payment with the wrong amount cannot mark an order paid",
+      "SELECT public.mark_stripe_order_paid($1, 'cs_test_bad', 'pi_test_bad', 1, 'BDT')",
+      [payableOrderId],
+    );
+    await expectError(
+      "a verified payment with the wrong currency cannot mark an order paid",
+      "SELECT public.mark_stripe_order_paid($1, 'cs_test_bad', 'pi_test_bad2', $2, 'USD')",
+      [payableOrderId, payableAmountMinor],
+    );
+    const stillPending = await q(
+      "SELECT status FROM public.orders WHERE id = $1",
+      [payableOrderId],
+    );
+    ok("failed amount checks leave the order pending", stillPending.rows[0]?.status === "pending");
+
+    const claim = await q(
+      "SELECT public.claim_payment_webhook_event($1, $2, $3::jsonb) AS claimed",
+      ["evt_test_paid", "checkout.session.completed", JSON.stringify({ order_id: payableOrderId })],
+    );
+    const duplicate = await q(
+      "SELECT public.claim_payment_webhook_event($1, $2, $3::jsonb) AS claimed",
+      ["evt_test_paid", "checkout.session.completed", JSON.stringify({ order_id: payableOrderId })],
+    );
+    ok(
+      "provider webhook events are claimed exactly once",
+      claim.rows[0]?.claimed === true && duplicate.rows[0]?.claimed === false,
+    );
+    await q("SELECT public.mark_stripe_order_processing($1)", [payableOrderId]);
+    await q(
+      "SELECT public.mark_stripe_order_paid($1, $2, $3, $4, $5)",
+      [payableOrderId, "cs_test_paid", "pi_test_paid", payableAmountMinor, "bdt"],
+    );
+    await q("SELECT public.finish_payment_webhook_event($1)", ["evt_test_paid"]);
+
+    const state = await q(
+      `SELECT o.status AS order_status, p.status AS payment_status,
+              p.checkout_session_id, p.payment_intent_id, r.status AS reservation_status,
+              (SELECT count(*) FROM public.tickets t WHERE t.order_id = o.id)::int AS ticket_count
+         FROM public.orders o
+         JOIN public.payments p ON p.order_id = o.id
+         JOIN public.ticket_inventory_reservations r ON r.order_id = o.id
+        WHERE o.id = $1`,
+      [payableOrderId],
+    );
+    ok(
+      "verified webhook state marks the order paid, confirms inventory and issues tickets",
+      state.rows[0]?.order_status === "paid" &&
+        state.rows[0]?.payment_status === "succeeded" &&
+        state.rows[0]?.checkout_session_id === "cs_test_paid" &&
+        state.rows[0]?.payment_intent_id === "pi_test_paid" &&
+        state.rows[0]?.reservation_status === "confirmed" &&
+        Number(state.rows[0]?.ticket_count) === 2,
+      JSON.stringify(state.rows[0]),
+    );
+
+    const paidTicket = await q(
+      "SELECT id FROM public.tickets WHERE order_id = $1 ORDER BY id LIMIT 1",
+      [payableOrderId],
+    );
+    paidTicketId = paidTicket.rows[0].id;
+    await q(
+      "UPDATE public.tickets SET qr_token_hash = encode(extensions.digest(convert_to($2, 'UTF8'), 'sha256'), 'hex') WHERE id = $1",
+      [paidTicketId, STRIPE_TICKET_TOKEN],
+    );
+  });
+
+  await asAnon(async () => {
+    const verified = await q(
+      "SELECT * FROM public.verify_ticket_by_id($1, $2)",
+      [paidTicketId, STRIPE_TICKET_TOKEN],
+    );
+    ok(
+      "paid tickets verify as non-demo tickets only after webhook issuance",
+      verified.rows[0]?.valid === true && verified.rows[0]?.is_demo === false,
+      JSON.stringify(verified.rows[0]),
+    );
+  });
+
+  await asServiceAs(USER.customerB, "customer-b@tickshow.test", async () => {
+    const failed = await q(
+      `SELECT * FROM public.create_stripe_checkout_order(
+        'stripe-test-event', 1, 'Failed Buyer', 'customer-b@tickshow.test', '01234567890', $1
+      )`,
+      [USER.customerB],
+    );
+    failedOrderId = failed.rows[0]?.order_id;
+  });
+
+  await asService(async () => {
+    await q(
+      "SELECT public.claim_payment_webhook_event($1, $2, $3::jsonb)",
+      ["evt_test_expired", "checkout.session.expired", JSON.stringify({ order_id: failedOrderId })],
+    );
+    await q(
+      "SELECT public.mark_stripe_order_unpaid($1, $2, $3, $4)",
+      [failedOrderId, "expired", "cs_test_expired", "pi_test_expired"],
+    );
+    await q("SELECT public.finish_payment_webhook_event($1)", ["evt_test_expired"]);
+    const state = await q(
+      `SELECT o.status AS order_status, p.status AS payment_status,
+              r.status AS reservation_status,
+              (SELECT count(*) FROM public.tickets t WHERE t.order_id = o.id)::int AS ticket_count
+         FROM public.orders o
+         JOIN public.payments p ON p.order_id = o.id
+         JOIN public.ticket_inventory_reservations r ON r.order_id = o.id
+        WHERE o.id = $1`,
+      [failedOrderId],
+    );
+    ok(
+      "expired checkout releases inventory and issues no tickets",
+      state.rows[0]?.order_status === "expired" &&
+        state.rows[0]?.payment_status === "cancelled" &&
+        state.rows[0]?.reservation_status === "expired" &&
+        Number(state.rows[0]?.ticket_count) === 0,
+      JSON.stringify(state.rows[0]),
+    );
+  });
+
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    await expectError(
+      "admins cannot mark an order paid from a client",
+      "SELECT public.admin_set_order_status($1, 'paid'::public.order_status)",
+      [payableOrderId],
+    );
+    await expectError(
+      "admins cannot change order amounts directly",
+      "UPDATE public.orders SET total_amount = 1 WHERE id = $1",
+      [payableOrderId],
+    );
+    await q(
+      "SELECT public.admin_set_order_status($1, 'refunded'::public.order_status)",
+      [payableOrderId],
+    );
+    const refunded = await q(
+      "SELECT status FROM public.orders WHERE id = $1",
+      [payableOrderId],
+    );
+    ok(
+      "admins can refund through the role-checked status RPC",
+      refunded.rows[0]?.status === "refunded",
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await expectError(
+      "customers cannot call the admin status RPC",
+      "SELECT public.admin_set_order_status($1, 'cancelled'::public.order_status)",
+      [payableOrderId],
+    );
+  });
+
+  await asService(async () => {
+    const scope = await q(
+      "SELECT public.is_verified_paid_order($1) AS paid",
+      [payableOrderId],
+    );
+    ok("refunded orders no longer verify as paid", scope.rows[0]?.paid === false);
+    ok("server-created order reference is available for support", payableOrderNumber.startsWith("TS-"));
+  });
+}
+
 async function testAccountDeletion() {
-  console.log("\n[8] Customer account deletion");
+  console.log("\n[9] Customer account deletion");
 
   await asAnon(async () => {
     await expectError(
@@ -1579,6 +1796,7 @@ async function run() {
   await testAdminManagement();
   await testStorefrontShowcase();
   await testStorefrontBookings();
+  await testStripeCheckoutAndWebhooks();
   await testAccountDeletion();
 
   console.log(`\nRESULT: ${passed} passed, ${failed} failed`);

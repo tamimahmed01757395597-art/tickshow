@@ -94,12 +94,12 @@ const INFO_PAGES: Record<
     title: "Terms &",
     accent: "conditions",
     intro:
-      "A short summary of how this TickShow preview works. Please read it before using the site.",
+      "A short summary of how TickShow works. Please read it before using the site.",
     sections: [
       {
-        heading: "Preview only",
+        heading: "Payments",
         paragraphs: [
-          "Checkout currently uses a no-charge demo payment. Demo bookings are saved to your account, but no real payment is taken and no valid entry ticket is issued.",
+          "TickShow currently runs Stripe in TEST MODE. Checkout uses Stripe test credentials, so no real money is charged. Orders, payments and tickets are recorded in the TickShow database and tickets are issued only after a verified payment event.",
         ],
       },
       {
@@ -111,7 +111,7 @@ const INFO_PAGES: Record<
       {
         heading: "Accounts",
         paragraphs: [
-          "Accounts are managed through TickShow authentication. You can update your account name, view demo bookings, and permanently delete your account from your dashboard after confirming your password.",
+          "Accounts are managed through TickShow authentication. You can update your account name, view verified orders, and permanently delete your account after confirming your password.",
         ],
       },
       {
@@ -127,24 +127,24 @@ const INFO_PAGES: Record<
     title: "Privacy",
     accent: "policy",
     intro:
-      "TickShow stores the account and booking information needed to manage your demo bookings.",
+      "TickShow stores the account and order information needed to manage your tickets.",
     sections: [
       {
         heading: "What we collect",
         paragraphs: [
-          "Your account email and name, plus the name, email and phone number attached to a booking. This information is stored in the TickShow Supabase database and is available to authorized administrators.",
+          "Your account email and name, plus the name, email and phone number attached to an order. This information is stored in the TickShow Supabase database and is available to authorized administrators.",
         ],
       },
       {
         heading: "Cookies and storage",
         paragraphs: [
-          "Supabase authentication stores the session needed to keep you signed in. Booking confirmations may also be cached in your browser.",
+          "Supabase authentication stores the session needed to keep you signed in. Orders and confirmations are stored in the database, not in browser storage.",
         ],
       },
       {
         heading: "Account deletion",
         paragraphs: [
-          "Deleting your account removes your profile and demo bookings. Financial order records are retained with customer contact details anonymized. Account deletion is confirmed with your password; we do not send a separate deletion email.",
+          "Deleting your account removes your profile and sign-in. Financial order records are retained with customer contact details anonymized. Account deletion is confirmed with your password; we do not send a separate deletion email.",
         ],
       },
       {
@@ -174,7 +174,7 @@ const INFO_PAGES: Record<
           {
             term: "Is TickShow a ticketing site?",
             detail:
-              "Checkout is currently a no-charge demo. It records bookings but does not take real payment or issue valid entry tickets.",
+              "Yes. Checkout runs in Stripe TEST MODE, so test cards are charged instead of real money. Verified orders receive valid TickShow tickets.",
           },
           {
             term: "Are the events real?",
@@ -223,7 +223,7 @@ const INFO_PAGES: Record<
       {
         heading: "Event details",
         paragraphs: [
-          "Select any event card to open its own page with the lineup, date, venue, price and status. Sign in or create an account to continue to the demo checkout.",
+          "Select any event card to open its own page with the lineup, date, venue, price and status. Sign in or create an account to continue to secure checkout.",
         ],
       },
       {
@@ -246,7 +246,7 @@ const INFO_PAGES: Record<
       {
         heading: "Before you write",
         paragraphs: [
-          "TickShow demo bookings are not paid orders or valid tickets. If you already have tickets, contact the organizer or the official ticketing provider listed on your confirmation.",
+          "Include your order reference when contacting support about a payment or ticket delivery. If your ticket came from another provider, contact that provider directly.",
         ],
       },
       {
