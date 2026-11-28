@@ -1263,6 +1263,10 @@ export type Database = {
       default_ticket_design: { Args: Record<string, never>; Returns: Json };
       is_verified_paid_order: { Args: { p_order_id: string }; Returns: boolean };
       claim_order_ticket_assets: { Args: { p_order_id: string }; Returns: boolean };
+      claim_order_ticket_assets_for_resend: {
+        Args: { p_order_id: string };
+        Returns: boolean;
+      };
       finish_order_ticket_assets: {
         Args: { p_order_id: string; p_ready: boolean; p_pdf_path?: string | null };
         Returns: undefined;

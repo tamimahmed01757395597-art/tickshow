@@ -254,17 +254,18 @@ Deno.serve(async (request) => {
     }
     const ticketBucket = serviceClient.storage.from("ticket-files");
     let pdfBlob: Blob | null = null;
-    if (typedOrder.ticket_assets_status === "ready" && typedOrder.ticket_pdf_path) {
+    const forceRegenerate = input.action === "resend";
+    if (!forceRegenerate && typedOrder.ticket_assets_status === "ready" && typedOrder.ticket_pdf_path) {
       const { data, error } = await ticketBucket.download(typedOrder.ticket_pdf_path);
       if (error || !data) {
         throw new Error("The saved paid ticket PDF is unavailable; contact support before retrying.");
       }
       pdfBlob = data;
     } else {
-      const { data: claimed, error: claimError } = await userClient.rpc(
-        "claim_order_ticket_assets",
-        { p_order_id: orderId },
-      );
+      const assetClaimResult = forceRegenerate
+        ? await userClient.rpc("claim_order_ticket_assets_for_resend", { p_order_id: orderId })
+        : await userClient.rpc("claim_order_ticket_assets", { p_order_id: orderId });
+      const { data: claimed, error: claimError } = assetClaimResult;
       if (claimError) throw new Error("Could not claim paid ticket preparation.");
       if (!claimed) {
         const { data: latest, error: latestError } = await serviceClient

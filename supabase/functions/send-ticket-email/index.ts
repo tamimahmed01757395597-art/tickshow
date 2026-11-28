@@ -12,6 +12,7 @@ type Action = "send" | "resend" | "download";
 
 type Booking = {
   id: string;
+  storefront_event_id: string | null;
   booking_reference: string;
   customer_id: string;
   buyer_name: string;
@@ -206,7 +207,7 @@ Deno.serve(async (request) => {
     const { data: booking, error: bookingError } = await serviceClient
       .from("storefront_bookings")
       .select(
-        "id, booking_reference, customer_id, buyer_name, buyer_email, event_title, event_date_label, event_time_label, event_venue, event_location, ticket_design_style, ticket_design_image_path, ticket_design, quantity, is_demo, ticket_email_status, ticket_emailed_at, ticket_downloaded_at",
+        "id, storefront_event_id, booking_reference, customer_id, buyer_name, buyer_email, event_title, event_date_label, event_time_label, event_venue, event_location, ticket_design_style, ticket_design_image_path, ticket_design, quantity, is_demo, ticket_email_status, ticket_emailed_at, ticket_downloaded_at",
       )
       .eq("booking_reference", reference)
       .eq("customer_id", authData.user.id)
@@ -241,8 +242,10 @@ Deno.serve(async (request) => {
     const path = ticketPath(booking.id);
     const bucket = serviceClient.storage.from("ticket-files");
     let pdfBlob: Blob | null = null;
-    const existing = await bucket.download(path);
-    if (!existing.error && existing.data) pdfBlob = existing.data;
+    if (action !== "resend") {
+      const existing = await bucket.download(path);
+      if (!existing.error && existing.data) pdfBlob = existing.data;
+    }
 
     if (!pdfBlob) {
       if (
@@ -269,6 +272,23 @@ Deno.serve(async (request) => {
       } else {
         assetsClaimed = true;
         try {
+          let pdfBooking = booking as Booking;
+          if (action === "resend" && booking.storefront_event_id) {
+            const { data: currentEvent, error: eventError } = await serviceClient
+              .from("storefront_events")
+              .select("ticket_design, ticket_design_image_path")
+              .eq("id", booking.storefront_event_id)
+              .single();
+            if (eventError || !currentEvent) {
+              throw new Error("Could not load the current event ticket design.");
+            }
+            pdfBooking = {
+              ...pdfBooking,
+              ticket_design: currentEvent.ticket_design,
+              ticket_design_image_path: currentEvent.ticket_design_image_path,
+            };
+          }
+
           const { data: existingTickets, error: ticketsError } = await serviceClient
             .from("storefront_tickets")
             .select("id, ticket_number")
@@ -321,8 +341,8 @@ Deno.serve(async (request) => {
             if (updateError) throw new Error("Could not rotate ticket QR tokens.");
             ticketItems.push({ ...ticket, token });
           }
-          const assets = await loadTicketAssets(booking as Booking, serviceClient);
-          pdfBlob = await buildTicketPdf(booking as Booking, ticketItems, siteUrl, assets);
+          const assets = await loadTicketAssets(pdfBooking, serviceClient);
+          pdfBlob = await buildTicketPdf(pdfBooking, ticketItems, siteUrl, assets);
 
           if (!pdfBlob) throw new Error("Could not generate the demo ticket PDF.");
           const { error: uploadError } = await bucket.upload(path, pdfBlob, {

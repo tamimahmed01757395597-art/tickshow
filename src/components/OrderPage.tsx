@@ -28,6 +28,7 @@ export default function OrderPage({
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [reissued, setReissued] = useState(false);
 
   const resendEmail = async () => {
     if (sending) return;
@@ -35,6 +36,7 @@ export default function OrderPage({
     setActionError("");
     try {
       await sendTicketEmail(booking.reference, "resend");
+      setReissued(true);
       setEmailStatus("sent");
       setEmailError("");
       updateBookingTicketStatus(booking.reference, {
@@ -135,7 +137,9 @@ export default function OrderPage({
 
           <section className="order-ticket-delivery" aria-label="Ticket delivery">
             <p role="status">
-              {emailStatus === "sent"
+              {reissued
+                ? "Updated ticket emailed. Previous QR codes are no longer valid."
+                : emailStatus === "sent"
                 ? "PDF ticket emailed successfully."
                 : emailStatus === "failed"
                   ? `Ticket email failed${emailError ? `: ${emailError}` : "."}`

@@ -926,6 +926,26 @@ async function testAdminManagement() {
       [ORDER.a],
     );
   });
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    const reissueClaim = await q(
+      "SELECT public.claim_order_ticket_assets_for_resend($1) AS claimed",
+      [ORDER.a],
+    );
+    const duplicateReissueClaim = await q(
+      "SELECT public.claim_order_ticket_assets_for_resend($1) AS claimed",
+      [ORDER.a],
+    );
+    ok(
+      "explicit paid-ticket resend claims a fresh PDF reissue once",
+      reissueClaim.rows[0]?.claimed === true && duplicateReissueClaim.rows[0]?.claimed === false,
+    );
+  });
+  await asService(async () => {
+    await q(
+      "SELECT public.finish_order_ticket_assets($1, true, 'paid-orders/test.pdf')",
+      [ORDER.a],
+    );
+  });
 
   await asAuth(USER.admin, "admin@tickshow.test", async () => {
     await q(

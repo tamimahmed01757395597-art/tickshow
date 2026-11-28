@@ -58,6 +58,7 @@ supabase/migrations/
   0031_admin_event_directory.sql
   0032_customer_support_messages.sql
   0033_custom_ticket_designs_and_paid_delivery.sql
+  0034_paid_ticket_resend_reissue.sql
 supabase/functions/send-ticket-email/index.ts
   supabase/functions/send-storefront-ticket/index.ts
   src/components/TicketDesignSection.tsx
@@ -90,6 +91,8 @@ Demo ticket delivery is handled by the authenticated `send-ticket-email` Edge Fu
 Admins can edit per-event ticket designs in **Ticket design**, including colors, artwork, text, visibility, alignment and QR placement. Designs are structured JSON on the event records; uploaded JPEG/PNG files live in the private `ticket-design-assets` bucket. Demo bookings snapshot the selected design at booking time. The shared A6 renderer uses the same design for browser downloads and Edge Function PDFs.
 
 The authenticated `send-storefront-ticket` Edge Function only issues tickets when an order is already marked paid and has a verified, successful, unrefunded payment covering its total. Ticket issuance and email sending use database claims so concurrent requests do not create duplicate tickets or email simultaneously; email status is recorded for retry. This repository has no payment provider integration or webhook, so this function is not automatically called after checkout. Do not mark an order/payment verified manually to simulate a real payment.
+
+An explicit **Resend ticket email** re-renders the ticket using the event's current design, rather than the booking-time snapshot or cached PDF. This reissues QR tokens; the previous emailed PDF's QR codes are invalidated.
 
 Migration `0027` removes organizer accounts, organizer invitations, organizer staff, and payout/commission history. Existing organizer names are retained on event and showcase rows as plain text. Event create/update/delete permissions are administrator-only; `event_staff` remains for event-level operational assignments. Administrator invitations remain in **Staff & roles**.
 
@@ -183,7 +186,7 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-`ticket-design-assets` is private and its storage policies permit only admins to read, upload, update or delete files under an existing showcase-event UUID. Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Apply migrations 0001–0033 in order. Before applying 0027, use the Supabase Storage Dashboard to remove organizer logo objects and delete the now-empty `organizer-logos` bucket; the migration checks that the managed bucket is already gone.
+`ticket-design-assets` is private and its storage policies permit only admins to read, upload, update or delete files under an existing showcase-event UUID. Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Apply migrations 0001–0034 in order. Before applying 0027, use the Supabase Storage Dashboard to remove organizer logo objects and delete the now-empty `organizer-logos` bucket; the migration checks that the managed bucket is already gone.
 
 ## 6. Environment variables
 
@@ -212,7 +215,7 @@ Brevo sends PDF attachments using `BREVO_FROM_EMAIL`. Verify the sender in Brevo
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0033` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0034` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -261,7 +264,7 @@ Apply migration `0028` after `0027` to backfill customer profiles for existing A
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0033 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0034 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
 - All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
@@ -279,7 +282,7 @@ Apply migration `0028` after `0027` to backfill customer profiles for existing A
 - Per-ticket token hashing, duplicate email suppression, single-use downloads, unique QR verification, and checked-in ticket rejection.
 - Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.
 
-Latest local validation: 121 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Generated PDFs were checked with multiple designs, artwork and unique per-ticket QR payloads. Live Supabase storage, Brevo delivery and payment-provider integration have not been tested.
+Latest local validation: 122 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Generated PDFs were checked with multiple designs, artwork and unique per-ticket QR payloads. Live Supabase storage, Brevo delivery and payment-provider integration have not been tested.
 
 ## 10. Not included
 

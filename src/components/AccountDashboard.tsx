@@ -129,7 +129,7 @@ export default function AccountDashboard() {
             : item,
         ),
       );
-      setNotice("The ticket PDF was sent to your account email.");
+      setNotice("The updated ticket was emailed. The previous QR codes are no longer valid.");
     } catch (caught: unknown) {
       setPageError(
         caught instanceof Error
