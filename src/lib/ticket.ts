@@ -6,9 +6,11 @@ import { requireSupabase } from "./supabase";
 import {
   addTicketPages,
   ticketArtworkFromBlob,
+  type TicketPdfAssets,
   type TicketPdfItem,
 } from "./ticket-pdf";
 import type { TicketPdfDocument } from "./ticket-pdf";
+import { normalizeTicketDesign } from "./ticket-design";
 
 type Booking = Database["public"]["Tables"]["storefront_bookings"]["Row"];
 
@@ -51,15 +53,21 @@ function asPdfDocument(pdf: jsPDF): TicketPdfDocument {
 
 export async function createTicketPdf(booking: Booking, tickets: TicketPdfItem[]) {
   const pdf = new jsPDF({ unit: "mm", format: "a6", orientation: "portrait" });
-  let artwork = null;
-  if (booking.ticket_design_image_path) {
-    const client = requireSupabase();
-    const { data } = client.storage.from("event-images").getPublicUrl(
-      booking.ticket_design_image_path,
-    );
-    const response = await fetch(data.publicUrl);
-    if (!response.ok) throw new Error("Could not load this event's ticket artwork.");
-    artwork = await ticketArtworkFromBlob(await response.blob());
+  const design = normalizeTicketDesign(booking.ticket_design);
+  const assets: TicketPdfAssets = {};
+  const client = requireSupabase();
+  const loadAsset = async (bucket: string, path: string) => {
+    const { data, error } = await client.storage.from(bucket).download(path);
+    if (error) throw new Error(`Could not load ticket design image: ${error.message}`);
+    return ticketArtworkFromBlob(data);
+  };
+  if (design.logoPath) {
+    assets.logo = await loadAsset("ticket-design-assets", design.logoPath);
+  }
+  if (design.backgroundImagePath) {
+    assets.background = await loadAsset("ticket-design-assets", design.backgroundImagePath);
+  } else if (booking.ticket_design_image_path) {
+    assets.background = await loadAsset("event-images", booking.ticket_design_image_path);
   }
   await addTicketPages(
     asPdfDocument(pdf),
@@ -72,7 +80,7 @@ export async function createTicketPdf(booking: Booking, tickets: TicketPdfItem[]
         margin: 1,
         errorCorrectionLevel: "H",
       }),
-    artwork,
+    assets,
   );
   return pdf;
 }

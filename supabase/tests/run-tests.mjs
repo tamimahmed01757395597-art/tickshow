@@ -23,7 +23,8 @@ const TICKET_TYPE = id(301);
 const ORDER = { a: id(401), b: id(402) };
 const ORDER_ITEM = { a: id(411), b: id(412) };
 const PAYMENT = id(501);
-const TICKET = { a: id(601), b: id(602) };
+const TICKET = { a: id(601), b: id(602), paid: id(603) };
+const PAID_TICKET_TOKEN = "c".repeat(64);
 const STORAGE_OBJECT = { event: id(801), ticketFile: id(802), avatar: id(803) };
 
 const db = new PGlite();
@@ -325,11 +326,31 @@ async function seedTestContext() {
       [TICKET.b, ORDER.b, ORDER_ITEM.b, USER.customerB, "b".repeat(64)],
     ]) {
       await q(
-        `INSERT INTO public.tickets (id, order_id, order_item_id, customer_id, event_id, ticket_type_id, qr_token_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [ticketId, orderId, orderItemId, customerId, EVENT.publicA, TICKET_TYPE, hash],
+        `INSERT INTO public.tickets (
+           id, order_id, order_item_id, customer_id, event_id, ticket_type_id,
+           qr_token_hash, order_item_ticket_number, order_ticket_number
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1)`,
+          [ticketId, orderId, orderItemId, customerId, EVENT.publicA, TICKET_TYPE, hash],
       );
     }
+    await q(
+      `INSERT INTO public.tickets (
+           id, order_id, order_item_id, customer_id, event_id, ticket_type_id,
+           qr_token_hash, order_item_ticket_number, order_ticket_number
+       ) VALUES (
+           $1, $2, $3, $4, $5, $6,
+           encode(extensions.digest(convert_to($7, 'UTF8'), 'sha256'), 'hex'), 2, 2
+       )`,
+      [
+          TICKET.paid,
+          ORDER.a,
+          ORDER_ITEM.a,
+          USER.customerA,
+          EVENT.publicA,
+          TICKET_TYPE,
+          PAID_TICKET_TOKEN,
+      ],
+    );
 
     await q(
       `INSERT INTO public.reviews (event_id, customer_id, rating, comment, status)
@@ -410,6 +431,10 @@ async function testSchema() {
      WHERE schemaname = 'public' AND rowsecurity = true`,
   );
   ok("RLS enabled on all application tables", rlsCount === 26, `found ${rlsCount}`);
+  const designBucket = await q(
+    "SELECT public FROM storage.buckets WHERE id = 'ticket-design-assets'",
+  );
+  ok("ticket design artwork uses a private storage bucket", designBucket.rows[0]?.public === false);
   const removedTables = await count(
     `SELECT count(*) FROM information_schema.tables
      WHERE table_schema = 'public'
@@ -539,6 +564,27 @@ async function testSchema() {
     ticketAfterCheckin.rows[0]?.status === "used" &&
       ticketAfterCheckin.rows[0]?.checkin_status === "checked_in",
   );
+  await expectError(
+    "duplicate per-order ticket numbering is rejected",
+    `INSERT INTO public.tickets (
+       order_id, order_item_id, customer_id, event_id, ticket_type_id,
+       qr_token_hash, order_item_ticket_number, order_ticket_number
+     ) VALUES ($1, $2, $3, $4, $5, $6, 1, 1)`,
+    [ORDER.a, ORDER_ITEM.a, USER.customerA, EVENT.publicA, TICKET_TYPE, "d".repeat(64)],
+  );
+  await asAnon(async () => {
+    const paidTicket = await q(
+      "SELECT valid, ticket_number, is_demo FROM public.verify_ticket_by_id($1, $2)",
+      [TICKET.paid, PAID_TICKET_TOKEN],
+    );
+    ok(
+      "paid-ticket QR verification requires a verified payment",
+      paidTicket.rows[0]?.valid === true &&
+        paidTicket.rows[0]?.ticket_number === 2 &&
+        paidTicket.rows[0]?.is_demo === false,
+      JSON.stringify(paidTicket.rows[0]),
+    );
+  });
 
   const privileges = await q(`
     SELECT
@@ -634,7 +680,11 @@ async function testRls() {
     const orders = await ids("SELECT id FROM public.orders");
     ok("customer A sees only own orders", orders.length === 1 && orders[0] === ORDER.a, JSON.stringify(orders));
     const tickets = await ids("SELECT id FROM public.tickets");
-    ok("customer A sees only own tickets", tickets.length === 1 && tickets[0] === TICKET.a, JSON.stringify(tickets));
+    ok(
+      "customer A sees only own tickets",
+      tickets.length === 2 && tickets.includes(TICKET.a) && tickets.includes(TICKET.paid),
+      JSON.stringify(tickets),
+    );
     const notifications = await ids("SELECT id FROM public.notifications");
     ok("customer A sees only own notifications", notifications.length === 1, JSON.stringify(notifications));
     await expectError(
@@ -841,8 +891,119 @@ async function testAdminInvitations() {
 async function testAdminManagement() {
   console.log("\n[5] Controlled administrative management");
 
+  await asService(async () => {
+    const paid = await q(
+      "SELECT public.is_verified_paid_order($1) AS verified",
+      [ORDER.a],
+    );
+    const unpaid = await q(
+      "SELECT public.is_verified_paid_order($1) AS verified",
+      [ORDER.b],
+    );
+    ok(
+      "only an order with verified successful payment is ticket-eligible",
+      paid.rows[0]?.verified === true && unpaid.rows[0]?.verified === false,
+    );
+  });
+
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    const assetClaim = await q(
+      "SELECT public.claim_order_ticket_assets($1) AS claimed",
+      [ORDER.a],
+    );
+    const duplicateAssetClaim = await q(
+      "SELECT public.claim_order_ticket_assets($1) AS claimed",
+      [ORDER.a],
+    );
+    ok(
+      "paid ticket PDF generation can be claimed once",
+      assetClaim.rows[0]?.claimed === true && duplicateAssetClaim.rows[0]?.claimed === false,
+    );
+  });
+  await asService(async () => {
+    await q(
+      "SELECT public.finish_order_ticket_assets($1, true, 'paid-orders/test.pdf')",
+      [ORDER.a],
+    );
+  });
+
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    await q(
+      `UPDATE public.orders
+       SET ticket_email_status = 'sending',
+           ticket_email_claimed_at = now() - interval '15 minutes'
+       WHERE id = $1`,
+      [ORDER.a],
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await q("UPDATE public.orders SET ticket_email_status = 'sent' WHERE id = $1", [ORDER.a]);
+    const deliveryStatus = await q(
+      "SELECT ticket_email_status FROM public.orders WHERE id = $1",
+      [ORDER.a],
+    );
+    ok(
+      "customers cannot change paid ticket delivery state directly",
+      deliveryStatus.rows[0]?.ticket_email_status === "sending",
+    );
+  });
+
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    await expectError(
+      "customers cannot query the private paid-order verification helper",
+      "SELECT public.is_verified_paid_order($1)",
+      [ORDER.a],
+    );
+    await expectError(
+      "customers cannot finalize paid ticket delivery state",
+      "SELECT public.finish_order_ticket_email($1, true, NULL)",
+      [ORDER.a],
+    );
+    const staleClaim = await q(
+      "SELECT public.claim_order_ticket_email($1, false) AS claimed",
+      [ORDER.a],
+    );
+    const duplicateClaim = await q(
+      "SELECT public.claim_order_ticket_email($1, false) AS claimed",
+      [ORDER.a],
+    );
+    ok(
+      "ticket email claims recover after a stale worker and block concurrent duplicates",
+      staleClaim.rows[0]?.claimed === true && duplicateClaim.rows[0]?.claimed === false,
+    );
+  });
+  await asService(async () => {
+    await q(
+      "SELECT public.finish_order_ticket_email($1, false, 'simulated delivery error')",
+      [ORDER.a],
+    );
+  });
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    const retryClaim = await q(
+      "SELECT public.claim_order_ticket_email($1, false) AS claimed",
+      [ORDER.a],
+    );
+    ok("failed paid ticket emails can be retried", retryClaim.rows[0]?.claimed === true);
+  });
+  await asService(async () => {
+    await q("SELECT public.finish_order_ticket_email($1, true, NULL)", [ORDER.a]);
+  });
+  await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
+    const alreadySent = await q(
+      "SELECT public.claim_order_ticket_email($1, false) AS claimed",
+      [ORDER.a],
+    );
+    ok("paid ticket emails are not repeated after successful delivery", alreadySent.rows[0]?.claimed === false);
+
     await q("UPDATE public.orders SET status = 'cancelled' WHERE id = $1", [ORDER.a]);
+  });
+  await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
+    await expectError(
+      "unpaid orders cannot claim ticket generation",
+      "SELECT public.claim_order_ticket_assets($1)",
+      [ORDER.b],
+    );
   });
   await asService(async () => {
     const order = await q("SELECT status FROM public.orders WHERE id = $1", [ORDER.a]);
@@ -899,7 +1060,7 @@ async function testStorefrontShowcase() {
 
   await asAuth(USER.customerA, "customer-a@tickshow.test", async () => {
     const before = await q(
-      "SELECT price_amount FROM public.storefront_events WHERE slug = 'showcase-alpha'",
+      "SELECT price_amount, ticket_design->>'primaryColor' AS ticket_primary FROM public.storefront_events WHERE slug = 'showcase-alpha'",
     );
     await q(
       "UPDATE public.storefront_events SET price_amount = 1 WHERE slug = 'showcase-alpha'",
@@ -911,6 +1072,19 @@ async function testStorefrontShowcase() {
       "customer cannot edit showcase events",
       Number(before.rows[0]?.price_amount) === Number(after.rows[0]?.price_amount),
       `${before.rows[0]?.price_amount} → ${after.rows[0]?.price_amount}`,
+    );
+    await q(
+      `UPDATE public.storefront_events
+       SET ticket_design = jsonb_set(ticket_design, '{primaryColor}', '"#000000"')
+       WHERE slug = 'showcase-alpha'`,
+    );
+    const designAfter = await q(
+      "SELECT ticket_design->>'primaryColor' AS ticket_primary FROM public.storefront_events WHERE slug = 'showcase-alpha'",
+    );
+    ok(
+      "customer cannot edit ticket design JSON",
+      before.rows[0]?.ticket_primary === designAfter.rows[0]?.ticket_primary,
+      `${before.rows[0]?.ticket_primary} → ${designAfter.rows[0]?.ticket_primary}`,
     );
   });
 
@@ -989,11 +1163,14 @@ async function testStorefrontShowcase() {
 
     await q(
       `UPDATE public.storefront_events
-       SET title = 'Updated Showcase Event', organizer_name = 'Updated Test Organizer', capacity = 45
+       SET title = 'Updated Showcase Event', organizer_name = 'Updated Test Organizer',
+           capacity = 45,
+           ticket_design = '{"version":1,"backgroundColor":"#fffdf6","primaryColor":"#f2c744","secondaryColor":"#111111"}'::jsonb
        WHERE slug = 'showcase-linked'`,
     );
     const synced = await q(
-      `SELECT e.title, e.organizer_name, e.capacity, tt.quantity_total, ti.total_quantity
+      `SELECT e.title, e.organizer_name, e.capacity, e.ticket_design->>'primaryColor' AS ticket_primary,
+              tt.quantity_total, ti.total_quantity
        FROM public.storefront_events se
        JOIN public.events e ON e.id = se.normalized_event_id
        JOIN public.ticket_types tt ON tt.event_id = e.id
@@ -1004,11 +1181,39 @@ async function testStorefrontShowcase() {
       "showcase edits keep linked catalog details and inventory synchronized",
       synced.rows[0]?.title === "Updated Showcase Event" &&
         synced.rows[0]?.organizer_name === "Updated Test Organizer" &&
+      synced.rows[0]?.ticket_primary === "#f2c744" &&
         Number(synced.rows[0]?.capacity) === 45 &&
         Number(synced.rows[0]?.quantity_total) === 45 &&
         Number(synced.rows[0]?.total_quantity) === 45,
       JSON.stringify(synced.rows[0]),
     );
+    const showcase = await q(
+        "SELECT id FROM public.storefront_events WHERE slug = 'showcase-linked'",
+    );
+    await q(
+        `INSERT INTO storage.objects (bucket_id, name)
+         VALUES ('ticket-design-assets', $1)`,
+        [`${showcase.rows[0]?.id}/logo/test.png`],
+    );
+  });
+
+  await asAuth(USER.customerB, "customer-b@tickshow.test", async () => {
+    const designAssets = await count(
+        "SELECT count(*) FROM storage.objects WHERE bucket_id = 'ticket-design-assets'",
+    );
+    ok("customers cannot read private ticket design artwork", designAssets === 0);
+    await expectError(
+        "customers cannot upload ticket design artwork",
+        `INSERT INTO storage.objects (bucket_id, name)
+         SELECT 'ticket-design-assets', id::text || '/logo/blocked.png'
+         FROM public.storefront_events WHERE slug = 'showcase-linked'`,
+    );
+  });
+  await asAuth(USER.admin, "admin@tickshow.test", async () => {
+    const designAssets = await count(
+        "SELECT count(*) FROM storage.objects WHERE bucket_id = 'ticket-design-assets'",
+    );
+    ok("admins can read ticket design artwork", designAssets === 1);
   });
 
   await asAnon(async () => {
@@ -1077,7 +1282,8 @@ async function testStorefrontBookings() {
     primaryBookingReference = result.rows[0]?.booking_reference;
     const snapshot = await q(
       `SELECT event_date_label, event_time_label, event_venue, event_location,
-              ticket_design_style, ticket_design_image_path
+              ticket_design_style, ticket_design_image_path,
+              ticket_design->>'primaryColor' AS ticket_primary
        FROM public.storefront_bookings WHERE booking_reference = $1`,
       [result.rows[0]?.booking_reference],
     );
@@ -1088,7 +1294,8 @@ async function testStorefrontBookings() {
         snapshot.rows[0]?.event_venue === "Test Hall" &&
         snapshot.rows[0]?.event_location === "Dhaka" &&
         snapshot.rows[0]?.ticket_design_style === "festival" &&
-        snapshot.rows[0]?.ticket_design_image_path === "booking-upcoming/ticket-design.png",
+        snapshot.rows[0]?.ticket_design_image_path === "booking-upcoming/ticket-design.png" &&
+        snapshot.rows[0]?.ticket_primary === "#f2c744",
       JSON.stringify(snapshot.rows[0]),
     );
     const ongoing = await q(

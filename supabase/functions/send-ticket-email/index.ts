@@ -3,9 +3,10 @@ import QRCode from "npm:qrcode@1.5.4";
 import { jsPDF } from "npm:jspdf@4.2.1";
 import {
   addTicketPages,
+  type TicketPdfAssets,
   ticketArtworkFromBlob,
-  type TicketArtwork,
 } from "../../../src/lib/ticket-pdf.ts";
+import { normalizeTicketDesign } from "../../../src/lib/ticket-design.ts";
 
 type Action = "send" | "resend" | "download";
 
@@ -22,6 +23,7 @@ type Booking = {
   event_location: string | null;
   ticket_design_style: string;
   ticket_design_image_path: string | null;
+  ticket_design: unknown;
   quantity: number;
   is_demo: boolean;
   ticket_email_status: "pending" | "sending" | "sent" | "failed";
@@ -82,7 +84,7 @@ async function buildTicketPdf(
   booking: Booking,
   tickets: Array<{ id: string; ticket_number: number; token: string }>,
   siteUrl: string,
-  artwork: TicketArtwork | null,
+  assets: TicketPdfAssets,
 ) {
   const pdf = new jsPDF({ unit: "mm", format: "a6", orientation: "portrait" });
   await addTicketPages(
@@ -96,9 +98,31 @@ async function buildTicketPdf(
         margin: 1,
         errorCorrectionLevel: "H",
       }),
-      artwork,
+      assets,
   );
   return new Blob([pdf.output("arraybuffer")], { type: "application/pdf" });
+}
+
+async function loadTicketAssets(
+  booking: Booking,
+  serviceClient: ReturnType<typeof createClient>,
+): Promise<TicketPdfAssets> {
+  const design = normalizeTicketDesign(booking.ticket_design);
+  const assets: TicketPdfAssets = {};
+  const load = async (bucket: string, path: string) => {
+    const { data, error } = await serviceClient.storage.from(bucket).download(path);
+    if (error || !data) throw new Error("Could not load this event's ticket artwork.");
+    return ticketArtworkFromBlob(data);
+  };
+  if (design.logoPath) {
+    assets.logo = await load("ticket-design-assets", design.logoPath);
+  }
+  if (design.backgroundImagePath) {
+    assets.background = await load("ticket-design-assets", design.backgroundImagePath);
+  } else if (booking.ticket_design_image_path) {
+    assets.background = await load("event-images", booking.ticket_design_image_path);
+  }
+  return assets;
 }
 
 Deno.serve(async (request) => {
@@ -182,7 +206,7 @@ Deno.serve(async (request) => {
     const { data: booking, error: bookingError } = await serviceClient
       .from("storefront_bookings")
       .select(
-        "id, booking_reference, customer_id, buyer_name, buyer_email, event_title, event_date_label, event_time_label, event_venue, event_location, ticket_design_style, ticket_design_image_path, quantity, is_demo, ticket_email_status, ticket_emailed_at, ticket_downloaded_at",
+        "id, booking_reference, customer_id, buyer_name, buyer_email, event_title, event_date_label, event_time_label, event_venue, event_location, ticket_design_style, ticket_design_image_path, ticket_design, quantity, is_demo, ticket_email_status, ticket_emailed_at, ticket_downloaded_at",
       )
       .eq("booking_reference", reference)
       .eq("customer_id", authData.user.id)
@@ -297,17 +321,8 @@ Deno.serve(async (request) => {
             if (updateError) throw new Error("Could not rotate ticket QR tokens.");
             ticketItems.push({ ...ticket, token });
           }
-          let artwork: TicketArtwork | null = null;
-          if (booking.ticket_design_image_path) {
-            const { data: artworkBlob, error: artworkError } = await serviceClient.storage
-              .from("event-images")
-              .download(booking.ticket_design_image_path);
-            if (artworkError || !artworkBlob) {
-              throw new Error("Could not load this event's ticket artwork.");
-            }
-            artwork = await ticketArtworkFromBlob(artworkBlob);
-          }
-          pdfBlob = await buildTicketPdf(booking as Booking, ticketItems, siteUrl, artwork);
+          const assets = await loadTicketAssets(booking as Booking, serviceClient);
+          pdfBlob = await buildTicketPdf(booking as Booking, ticketItems, siteUrl, assets);
 
           if (!pdfBlob) throw new Error("Could not generate the demo ticket PDF.");
           const { error: uploadError } = await bucket.upload(path, pdfBlob, {

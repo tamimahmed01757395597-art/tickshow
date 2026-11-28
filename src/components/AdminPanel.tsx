@@ -18,6 +18,7 @@ import {
 } from "../lib/admin";
 import type { Database } from "../types/database";
 import { EVENT_CATEGORIES } from "../data/events";
+import TicketDesignSection from "./TicketDesignSection";
 import "./AdminPanel.css";
 
 type Enums = Database["public"]["Enums"];
@@ -33,6 +34,7 @@ const ADMIN_SECTIONS = [
   { id: "activity", label: "Activity log", mark: "AL" },
   { id: "staff", label: "Staff & roles", mark: "SR" },
   { id: "showcase", label: "Event showcase", mark: "ES" },
+  { id: "ticket-design", label: "Ticket design", mark: "TD" },
 ] as const;
 
 type AdminSection = (typeof ADMIN_SECTIONS)[number]["id"];
@@ -47,6 +49,7 @@ const SECTION_DESCRIPTIONS: Record<AdminSection, string> = {
   activity: "Append-only audit trail of administrative mutations.",
   staff: "Assign roles and issue single-use administrator invitations.",
   showcase: "Control upcoming, ongoing, past and carousel events shown on the storefront.",
+  "ticket-design": "Create a saved, event-specific layout for printable customer tickets.",
 };
 
 type EditField = {
@@ -901,33 +904,6 @@ const SHOWCASE_FIELDS: EditField[] = [
   { key: "location", label: "Location" },
   { key: "city", label: "City" },
   { key: "price_amount", label: "Display price (BDT)", type: "number" },
-  {
-    key: "ticket_design_style",
-    label: "Ticket style",
-    type: "select",
-    full: true,
-    options: [
-      { value: "classic", label: "Classic — TickShow lime" },
-      { value: "midnight", label: "Midnight — navy and violet" },
-      { value: "festival", label: "Festival — coral and gold" },
-      { value: "neon", label: "Neon — teal and electric blue" },
-    ],
-    hint: "This style is saved with each booking and used for its PDF ticket.",
-  },
-  {
-    key: "ticket_design_file",
-    label: "Upload ticket artwork (optional)",
-    type: "file",
-    accept: "image/jpeg,image/png",
-    full: true,
-    hint: "JPEG or PNG, up to 10 MB. A6 portrait artwork is recommended; ticket details and the unique QR are overlaid in a clear panel.",
-  },
-  {
-    key: "ticket_design_clear",
-    label: "Remove current ticket artwork",
-    type: "checkbox",
-    full: true,
-  },
   { key: "display_order", label: "List order", type: "number" },
   {
     key: "image_file",
@@ -1000,8 +976,6 @@ function showcaseInitial(row: ShowcaseRecord | null): Record<string, unknown> {
     location: row?.location ?? "",
     city: row?.city ?? "",
     price_amount: row?.price_amount ?? 0,
-    ticket_design_style: row?.ticket_design_style ?? "classic",
-    ticket_design_clear: false,
     display_order: row?.display_order ?? 0,
     image_url: row?.image_url ?? "",
     image_alt: row?.image_alt ?? "",
@@ -1079,7 +1053,6 @@ function showcaseValues(
     location: values.location || null,
     city: values.city || null,
     price_amount: numberOr("price_amount"),
-    ticket_design_style: values.ticket_design_style || "classic",
     display_order: numberOr("display_order"),
     image_url: values.image_url || null,
     image_alt: values.image_alt || null,
@@ -1101,21 +1074,13 @@ function ShowcaseSection() {
   const [actionError, setActionError] = useState("");
   const showcaseFields = useMemo(
     () =>
-      SHOWCASE_FIELDS
-        .filter((field) => field.key !== "ticket_design_clear" || Boolean(editing?.ticket_design_image_path))
-        .map((field) => {
+      SHOWCASE_FIELDS.map((field) => {
           let next = field;
           if (linkingEvent && ["starts_at", "ends_at", "capacity"].includes(field.key)) {
             next = {
               ...next,
               required: true,
               hint: field.hint ?? "Required to create the catalog event.",
-            };
-          }
-          if (field.key === "ticket_design_file" && editing?.ticket_design_image_path) {
-            next = {
-              ...next,
-              hint: "Current artwork is set. Upload a replacement, or select Remove current ticket artwork.",
             };
           }
           return next;
@@ -1173,9 +1138,6 @@ function ShowcaseSection() {
     values: Record<string, string>,
     files: Record<string, File | null>,
   ) => {
-    if (files.ticket_design_file && values.ticket_design_clear === "true") {
-      throw new Error("Upload new artwork or remove the current artwork, not both.");
-    }
     const record = showcaseValues(values, creating || linkingEvent);
     const eventId = editing?.id ?? crypto.randomUUID();
     const uploadedPaths: string[] = [];
@@ -1184,15 +1146,6 @@ function ShowcaseSection() {
       const file = files.image_file;
       const uploaded = file ? await api.uploadShowcaseImage(eventId, file) : null;
       if (uploaded) uploadedPaths.push(uploaded.path);
-      const ticketDesignFile = files.ticket_design_file;
-      const uploadedTicketDesign = ticketDesignFile
-        ? await api.uploadTicketDesignImage(eventId, ticketDesignFile)
-        : null;
-      if (uploadedTicketDesign) uploadedPaths.push(uploadedTicketDesign);
-      record.ticket_design_image_path = uploadedTicketDesign ??
-        (editing && values.ticket_design_clear !== "true"
-          ? editing.ticket_design_image_path
-          : null);
       if (creating) {
         await api.createShowcaseEvent({
           ...record,
@@ -1730,6 +1683,7 @@ function AdminPanel() {
           {activeSection === "activity" && <ActivitySection />}
           {activeSection === "staff" && <StaffSection />}
           {activeSection === "showcase" && <ShowcaseSection />}
+          {activeSection === "ticket-design" && <TicketDesignSection />}
 
           <footer className="admin-footer">
             <span>TickShow Admin · Supabase connected</span>

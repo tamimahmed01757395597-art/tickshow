@@ -5,11 +5,9 @@ import {
   MAX_TICKETS_PER_ORDER,
   createBooking,
   formatTaka,
-  updateBookingTicketStatus,
 } from "../data/bookings";
 import { requireSupabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import { sendTicketEmail } from "../lib/ticket";
 import Brand from "./Brand";
 import { Icon } from "./Icon";
 
@@ -64,19 +62,6 @@ export default function CheckoutPage({
         reference: result.booking_reference,
         amount: Number(result.total_amount),
       });
-      try {
-        const delivery = await sendTicketEmail(result.booking_reference);
-        updateBookingTicketStatus(result.booking_reference, {
-          ticketEmailStatus: delivery.sent || delivery.alreadySent ? "sent" : "failed",
-          ticketEmailError: null,
-        });
-      } catch (emailError) {
-        updateBookingTicketStatus(result.booking_reference, {
-          ticketEmailStatus: "failed",
-          ticketEmailError:
-            emailError instanceof Error ? emailError.message : "The email could not be sent.",
-        });
-      }
       window.location.hash = `#/order/${booking.reference}`;
     } catch (caught: unknown) {
       setSubmitError(

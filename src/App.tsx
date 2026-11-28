@@ -636,6 +636,7 @@ function TicketVerificationPage({
     event_location: string | null;
     booking_reference: string;
     ticket_number: number;
+    is_demo: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -643,7 +644,7 @@ function TicketVerificationPage({
     const verify = async () => {
       try {
         const response = ticketId
-          ? await requireSupabase().rpc("verify_storefront_ticket_by_id", {
+          ? await requireSupabase().rpc("verify_ticket_by_id", {
               p_ticket_id: ticketId,
               p_ticket_token: token,
             })
@@ -665,6 +666,7 @@ function TicketVerificationPage({
               ? result.booking_reference ?? reference ?? ""
               : reference ?? "",
             ticket_number: "ticket_number" in result ? result.ticket_number ?? 1 : 1,
+            is_demo: "is_demo" in result ? result.is_demo : true,
           });
         } else {
           setVerificationError(
@@ -672,7 +674,7 @@ function TicketVerificationPage({
           );
         }
       } catch {
-        if (active) setVerificationError("Could not verify this demo ticket.");
+        if (active) setVerificationError("Could not verify this ticket.");
       } finally {
         if (active) setLoading(false);
       }
@@ -694,7 +696,7 @@ function TicketVerificationPage({
           <div className="auth-card">
             <p className="auth-card-kicker">Ticket verification</p>
             <h1 id="ticket-verification-title">
-              {loading ? "Checking ticket…" : valid ? "Valid demo ticket" : "Ticket not valid"}
+              {loading ? "Checking ticket…" : valid ? details?.is_demo ? "Valid demo ticket" : "Valid ticket" : "Ticket not valid"}
             </h1>
             {loading ? (
               <p className="auth-card-intro">Verifying the unique QR code…</p>

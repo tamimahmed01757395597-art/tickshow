@@ -293,6 +293,41 @@ export async function uploadTicketDesignImage(eventId: string, file: File): Prom
   return path;
 }
 
+export async function uploadTicketDesignAsset(
+  eventId: string,
+  kind: "logo" | "background",
+  file: File,
+): Promise<string> {
+  const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : null;
+  if (!extension) throw new Error("Ticket logos and backgrounds must be JPEG or PNG images.");
+  if (file.size === 0 || file.size > 10 * 1024 * 1024) {
+    throw new Error("Ticket design images must be larger than 0 bytes and no larger than 10 MB.");
+  }
+
+  const path = `${eventId}/${kind}/${crypto.randomUUID()}.${extension}`;
+  const { error } = await requireSupabase().storage.from("ticket-design-assets").upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+export async function getTicketDesignAssetUrl(path: string): Promise<string> {
+  const { data, error } = await requireSupabase()
+    .storage.from("ticket-design-assets")
+    .createSignedUrl(path, 600);
+  if (error) throw new Error(error.message);
+  return data.signedUrl;
+}
+
+export async function deleteTicketDesignAssets(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  const { error } = await requireSupabase().storage.from("ticket-design-assets").remove(paths);
+  if (error) throw new Error(error.message);
+}
+
 export async function deleteShowcaseImage(path: string): Promise<void> {
   const { error } = await requireSupabase().storage.from("event-images").remove([path]);
   if (error) throw new Error(error.message);

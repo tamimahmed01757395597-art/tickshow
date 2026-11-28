@@ -57,7 +57,10 @@ supabase/migrations/
   0030_repair_showcase_catalog_links.sql
   0031_admin_event_directory.sql
   0032_customer_support_messages.sql
+  0033_custom_ticket_designs_and_paid_delivery.sql
 supabase/functions/send-ticket-email/index.ts
+  supabase/functions/send-storefront-ticket/index.ts
+  src/components/TicketDesignSection.tsx
 src/lib/ticket-pdf.ts                  (shared multi-ticket PDF renderer)
 supabase/tests/run-tests.mjs
 ```
@@ -82,9 +85,11 @@ All application tables use UUID primary keys, `timestamptz` timestamps, explicit
 
 The demo checkout writes to `storefront_bookings` through `create_storefront_booking`. The database reads the current visible event price and stores each booking, customer owner, and event details in one transaction. Signed-in buyers can read only their own bookings in the account dashboard; admins can review them in **Orders & tickets**. This demo flow remains separate from normalized `orders` and does not reserve or sell the new catalog inventory.
 
-Ticket issuance is handled by the authenticated `send-ticket-email` Edge Function. It creates one cryptographically random token per ticket, stores only SHA-256 token hashes in the private `storefront_tickets` table, builds an A6 PDF with a unique QR code on each page, and stores the PDF in the private `ticket-files` bucket. Brevo receives the booking's database email, never a browser-provided recipient. Account PDF downloads use a single-use database claim and a short-lived signed URL. All generated tickets and email copy are marked DEMO / TEST and are not valid for paid entry.
+Demo ticket delivery is handled by the authenticated `send-ticket-email` Edge Function. It creates one cryptographically random token per demo ticket, stores only SHA-256 token hashes in the private `storefront_tickets` table, builds an A6 PDF with a unique QR code on each page, and stores it in the private `ticket-files` bucket. Brevo receives the booking's database email, never a browser-provided recipient. Demo tickets are explicitly marked DEMO / TEST and cannot verify as paid entry. Demo checkout does not email a ticket automatically.
 
-Admins can select a built-in ticket style (Classic, Midnight, Festival or Neon) and optionally upload event-specific JPEG/PNG artwork in **Event showcase**. Booking creation snapshots both settings, so a later design change does not alter tickets already booked. The PDF renderer places booking details and the unique QR in fixed clear areas over the artwork; keep the A6 portrait canvas clear enough for those overlays.
+Admins can edit per-event ticket designs in **Ticket design**, including colors, artwork, text, visibility, alignment and QR placement. Designs are structured JSON on the event records; uploaded JPEG/PNG files live in the private `ticket-design-assets` bucket. Demo bookings snapshot the selected design at booking time. The shared A6 renderer uses the same design for browser downloads and Edge Function PDFs.
+
+The authenticated `send-storefront-ticket` Edge Function only issues tickets when an order is already marked paid and has a verified, successful, unrefunded payment covering its total. Ticket issuance and email sending use database claims so concurrent requests do not create duplicate tickets or email simultaneously; email status is recorded for retry. This repository has no payment provider integration or webhook, so this function is not automatically called after checkout. Do not mark an order/payment verified manually to simulate a real payment.
 
 Migration `0027` removes organizer accounts, organizer invitations, organizer staff, and payout/commission history. Existing organizer names are retained on event and showcase rows as plain text. Event create/update/delete permissions are administrator-only; `event_staff` remains for event-level operational assignments. Administrator invitations remain in **Staff & roles**.
 
@@ -120,7 +125,7 @@ Migration `0032` stores Contact and Booking support form submissions in a privat
 - Checkout requires a signed-in account; bookings are tied to the authenticated user and shown in `#/account`.
 - The account dashboard supports booking history, one-time PDF ticket downloads, email delivery status and explicit email retry, name updates, sign-out, and password-confirmed account deletion.
 - `#/forgot-password` sends a Supabase recovery email. `/auth/callback` handles confirmation and recovery links and provides the password update page.
-- Ticket delivery uses Brevo's transactional email API. Supabase Auth confirmation and recovery emails use Supabase's configured Auth SMTP provider; to send those through Brevo too, configure Brevo SMTP separately in **Authentication → SMTP Settings**. Brevo's documented SMTP setup requires an authenticated domain, and its SMTP credentials are separate from the transactional API key. Changing the email provider does not replace the required Auth redirect URL and Vercel callback rewrite.
+- Ticket delivery uses Brevo's transactional email API. Supabase Auth confirmation and recovery emails use Supabase's configured Auth SMTP provider; changing the ticket email provider does not change Auth SMTP or the required Auth redirect URL and Vercel callback rewrite.
 - Account deletion is immediate after password reauthentication; deletion-confirmation email delivery is not implemented. Financial order records are retained but anonymized.
 - Configure Supabase Auth **Site URL** and add the production `https://YOUR_DOMAIN/auth/callback` URL to **Redirect URLs**. Also allow the local callback URL when developing. Vercel rewrites `/auth/callback` to the SPA.
 
@@ -174,10 +179,11 @@ Security helpers use `SECURITY DEFINER` with a pinned `search_path`.
 | `event-gallery` | Yes | `{event_id}/{filename}` |
 | `user-avatars` | Yes | `{user_id}/{filename}` |
 | `ticket-files` | No | `storefront-bookings/{booking_id}/tickets.pdf` for test PDFs; existing order paths remain supported |
+| `ticket-design-assets` | No | `{storefront_event_id}/{logo|background}/{random_filename}` |
 
 The admin event editor uploads cover images to `event-images/{event_id}/{filename}`. The bucket accepts JPEG, PNG, WebP and AVIF files up to 10 MiB.
 
-Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Migrations 0012 and 0015 also bootstrap the `public` helper functions they need with `CREATE OR REPLACE`, so applying either on its own no longer fails with `function public.is_admin() does not exist` or `function public.set_updated_at() does not exist`. Apply migrations 0001–0032 in order. Before applying 0027, use the Supabase Storage Dashboard to remove organizer logo objects and delete the now-empty `organizer-logos` bucket; the migration checks that the managed bucket is already gone.
+`ticket-design-assets` is private and its storage policies permit only admins to read, upload, update or delete files under an existing showcase-event UUID. Bucket creation uses `ON CONFLICT DO NOTHING`, so existing settings are not overwritten. Migration 0012 does not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`: Supabase enables that RLS by default and blocks `ALTER TABLE` on storage-owned tables for project roles. Only the RLS policies are created by the migration. Apply migrations 0001–0033 in order. Before applying 0027, use the Supabase Storage Dashboard to remove organizer logo objects and delete the now-empty `organizer-logos` bucket; the migration checks that the managed bucket is already gone.
 
 ## 6. Environment variables
 
@@ -202,11 +208,11 @@ Set these as Supabase Edge Function secrets (not Vercel/frontend variables):
 | `BREVO_FROM_NAME` | Optional sender display name; defaults to `TickShow` |
 | `SITE_URL` | Deployed storefront origin used for QR verification URLs and CORS |
 
-Brevo's API sends the PDF attachment using `BREVO_FROM_EMAIL`. Add and verify the sender in Brevo before testing. Brevo may require domain authentication for some sender domains or account states; use the exact API error surfaced by the app and check Brevo transactional logs if delivery fails.
+Brevo sends PDF attachments using `BREVO_FROM_EMAIL`. Verify the sender in Brevo before testing.
 
 For Vercel deployments, `.env.local` is intentionally not uploaded. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Vercel Project → Settings → Environment Variables** for Production/Preview/Development, then **Redeploy**. Vite inlines these values at build time, so changing them requires a fresh deployment. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel or any other `VITE_` variable.
 
-If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0032` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
+If you are applying SQL manually in the Supabase SQL editor instead of using the CLI, run `supabase/bootstrap.sql` once. It contains migrations `0001`–`0033` in order, so helper functions such as `public.is_admin()` and `public.set_updated_at()` exist before the policies and triggers that use them. Migration 0019 removes only the known seeded showcase examples and their associated demo bookings; migration 0027 permanently removes organizer payout/commission history and organizer account data. Running individual later files first will otherwise produce `42883: function ... does not exist` errors.
 
 ## 7. Setup and commands
 
@@ -219,10 +225,11 @@ npm run db:migrate
 npm run db:types:remote
 npx supabase@latest secrets set BREVO_API_KEY=YOUR_BREVO_API_KEY BREVO_FROM_EMAIL=YOUR_VERIFIED_SENDER_EMAIL BREVO_FROM_NAME=TickShow SITE_URL=https://your-site.vercel.app --remote=YOUR_PROJECT_REF
 npx supabase@latest functions deploy send-ticket-email --remote=YOUR_PROJECT_REF
+npx supabase@latest functions deploy send-storefront-ticket --remote=YOUR_PROJECT_REF
 npm run dev
 ```
 
-You can set the same Edge Function secrets in **Supabase Dashboard → Edge Functions → Secrets** instead of using the CLI. Never put the Brevo API key in a `VITE_` variable. If you also want Supabase Auth confirmation/recovery messages sent by Brevo, configure SMTP separately in **Authentication → SMTP Settings** using host `smtp-relay.brevo.com`, port `587`, the SMTP login shown in Brevo, and a Brevo SMTP key (not the API key). Brevo's SMTP setup currently requires an authenticated domain; this is not needed for ticket delivery through the transactional API.
+You can set the same Edge Function secrets in **Supabase Dashboard → Edge Functions → Secrets** instead of using the CLI. Never put the Brevo API key in a `VITE_` variable.
 
 Local only:
 
@@ -254,7 +261,7 @@ Apply migration `0028` after `0027` to backfill customer profiles for existing A
 
 ## 9. Validation performed
 
-`npm run db:test` applies migrations 0001–0032 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
+`npm run db:test` applies migrations 0001–0033 to an in-memory PostgreSQL database (PGlite) with auth/storage shims and verifies:
 
 - All application tables are created with RLS enabled.
 - Constraints, duplicate IDs, invalid event windows and over-refunds.
@@ -272,7 +279,7 @@ Apply migration `0028` after `0027` to backfill customer profiles for existing A
 - Per-ticket token hashing, duplicate email suppression, single-use downloads, unique QR verification, and checked-in ticket rejection.
 - Removal of the seeded showcase rows, authenticated booking ownership and account deletion/anonymization.
 
-Latest local validation: 96 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Live Supabase and Brevo delivery have not been tested.
+Latest local validation: 121 database tests passed; `npx tsc --noEmit` and `npm run build` passed. Generated PDFs were checked with multiple designs, artwork and unique per-ticket QR payloads. Live Supabase storage, Brevo delivery and payment-provider integration have not been tested.
 
 ## 10. Not included
 

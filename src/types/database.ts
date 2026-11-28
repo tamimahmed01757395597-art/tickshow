@@ -158,6 +158,7 @@ export type Database = {
           status: Database["public"]["Enums"]["event_status"];
           approval_status: Database["public"]["Enums"]["approval_status"];
           capacity: number | null;
+          ticket_design: Json;
           published_at: string | null;
           approved_at: string | null;
           cancelled_at: string | null;
@@ -184,6 +185,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["event_status"];
           approval_status?: Database["public"]["Enums"]["approval_status"];
           capacity?: number | null;
+          ticket_design?: Json;
           published_at?: string | null;
           approved_at?: string | null;
           cancelled_at?: string | null;
@@ -210,6 +212,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["event_status"];
           approval_status?: Database["public"]["Enums"]["approval_status"];
           capacity?: number | null;
+          ticket_design?: Json;
           published_at?: string | null;
           approved_at?: string | null;
           cancelled_at?: string | null;
@@ -419,6 +422,12 @@ export type Database = {
           expires_at: string | null;
           paid_at: string | null;
           cancelled_at: string | null;
+          ticket_assets_status: "pending" | "generating" | "ready";
+          ticket_pdf_path: string | null;
+          ticket_email_status: "pending" | "sending" | "sent" | "failed";
+          ticket_email_claimed_at: string | null;
+          ticket_emailed_at: string | null;
+          ticket_email_error: string | null;
           created_at: string;
           updated_at: string;
         },
@@ -439,6 +448,12 @@ export type Database = {
           expires_at?: string | null;
           paid_at?: string | null;
           cancelled_at?: string | null;
+          ticket_assets_status?: "pending" | "generating" | "ready";
+          ticket_pdf_path?: string | null;
+          ticket_email_status?: "pending" | "sending" | "sent" | "failed";
+          ticket_email_claimed_at?: string | null;
+          ticket_emailed_at?: string | null;
+          ticket_email_error?: string | null;
           created_at?: string;
           updated_at?: string;
         },
@@ -459,6 +474,12 @@ export type Database = {
           expires_at?: string | null;
           paid_at?: string | null;
           cancelled_at?: string | null;
+          ticket_assets_status?: "pending" | "generating" | "ready";
+          ticket_pdf_path?: string | null;
+          ticket_email_status?: "pending" | "sending" | "sent" | "failed";
+          ticket_email_claimed_at?: string | null;
+          ticket_emailed_at?: string | null;
+          ticket_email_error?: string | null;
           created_at?: string;
           updated_at?: string;
         }
@@ -587,6 +608,8 @@ export type Database = {
           event_id: string;
           ticket_type_id: string;
           qr_token_hash: string;
+          order_item_ticket_number: number;
+          order_ticket_number: number;
           status: Database["public"]["Enums"]["ticket_status"];
           checkin_status: Database["public"]["Enums"]["checkin_status"];
           issued_at: string;
@@ -604,6 +627,8 @@ export type Database = {
           event_id: string;
           ticket_type_id: string;
           qr_token_hash: string;
+          order_item_ticket_number: number;
+          order_ticket_number: number;
           status?: Database["public"]["Enums"]["ticket_status"];
           checkin_status?: Database["public"]["Enums"]["checkin_status"];
           issued_at?: string;
@@ -621,6 +646,8 @@ export type Database = {
           event_id?: string;
           ticket_type_id?: string;
           qr_token_hash?: string;
+          order_item_ticket_number?: number;
+          order_ticket_number?: number;
           status?: Database["public"]["Enums"]["ticket_status"];
           checkin_status?: Database["public"]["Enums"]["checkin_status"];
           issued_at?: string;
@@ -882,6 +909,7 @@ export type Database = {
           capacity: number | null;
           ticket_design_style: string;
           ticket_design_image_path: string | null;
+          ticket_design: Json;
           slug: string;
           title: string;
           category: string;
@@ -915,6 +943,7 @@ export type Database = {
           capacity?: number | null;
           ticket_design_style?: string;
           ticket_design_image_path?: string | null;
+          ticket_design?: Json;
           slug: string;
           title: string;
           category: string;
@@ -948,6 +977,7 @@ export type Database = {
           capacity?: number | null;
           ticket_design_style?: string;
           ticket_design_image_path?: string | null;
+          ticket_design?: Json;
           slug?: string;
           title?: string;
           category?: string;
@@ -987,6 +1017,7 @@ export type Database = {
           event_location: string | null;
           ticket_design_style: string;
           ticket_design_image_path: string | null;
+          ticket_design: Json;
           quantity: number;
           unit_price_amount: number;
           total_amount: number;
@@ -1015,6 +1046,7 @@ export type Database = {
           event_location?: string | null;
           ticket_design_style?: string;
           ticket_design_image_path?: string | null;
+          ticket_design?: Json;
           quantity: number;
           unit_price_amount: number;
           total_amount: number;
@@ -1043,6 +1075,7 @@ export type Database = {
           event_location?: string | null;
           ticket_design_style?: string;
           ticket_design_image_path?: string | null;
+          ticket_design?: Json;
           quantity?: number;
           unit_price_amount?: number;
           total_amount?: number;
@@ -1211,6 +1244,36 @@ export type Database = {
           ticket_number: number | null;
           already_checked_in: boolean;
         }[];
+      };
+      verify_ticket_by_id: {
+        Args: { p_ticket_id: string; p_ticket_token: string };
+        Returns: {
+          valid: boolean;
+          event_title: string | null;
+          event_date: string | null;
+          event_time: string | null;
+          event_venue: string | null;
+          event_location: string | null;
+          booking_reference: string | null;
+          ticket_number: number | null;
+          already_checked_in: boolean;
+          is_demo: boolean;
+        }[];
+      };
+      default_ticket_design: { Args: Record<string, never>; Returns: Json };
+      is_verified_paid_order: { Args: { p_order_id: string }; Returns: boolean };
+      claim_order_ticket_assets: { Args: { p_order_id: string }; Returns: boolean };
+      finish_order_ticket_assets: {
+        Args: { p_order_id: string; p_ready: boolean; p_pdf_path?: string | null };
+        Returns: undefined;
+      };
+      claim_order_ticket_email: {
+        Args: { p_order_id: string; p_resend?: boolean };
+        Returns: boolean;
+      };
+      finish_order_ticket_email: {
+        Args: { p_order_id: string; p_sent: boolean; p_error?: string | null };
+        Returns: undefined;
       };
       verify_storefront_ticket: {
         Args: { p_booking_reference: string; p_ticket_token: string };
