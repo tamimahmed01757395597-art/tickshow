@@ -252,9 +252,13 @@ Deno.serve(async (request) => {
     ) {
       throw new Error("You are not allowed to access this order.");
     }
+
     const ticketBucket = serviceClient.storage.from("ticket-files");
     let pdfBlob: Blob | null = null;
-    const forceRegenerate = input.action === "resend";
+    const forceRegenerate =
+      input.action === "resend" ||
+      ((typedOrder.ticket_email_status === "pending" || typedOrder.ticket_email_status === "failed") &&
+        typedOrder.ticket_assets_status === "ready");
     if (!forceRegenerate && typedOrder.ticket_assets_status === "ready" && typedOrder.ticket_pdf_path) {
       const { data, error } = await ticketBucket.download(typedOrder.ticket_pdf_path);
       if (error || !data) {
@@ -284,7 +288,7 @@ Deno.serve(async (request) => {
       } else {
         assetsClaimed = true;
         try {
-          const [eventResult, itemResult] = await Promise.all([
+          const [eventResult, itemResult, showcaseResult] = await Promise.all([
             serviceClient.from("events")
               .select("title, starts_at, venue_name, venue_address, venue_city, ticket_design")
               .eq("id", typedOrder.event_id)
@@ -293,10 +297,18 @@ Deno.serve(async (request) => {
               .select("id, quantity, ticket_type_id")
               .eq("order_id", orderId)
               .order("created_at", { ascending: true }),
+            serviceClient.from("storefront_events")
+              .select("ticket_design")
+              .eq("normalized_event_id", typedOrder.event_id)
+              .maybeSingle(),
           ]);
           if (eventResult.error || !eventResult.data) throw new Error("Could not load event details.");
           if (itemResult.error || !itemResult.data?.length) throw new Error("Could not load order tickets.");
-          const event = eventResult.data as Event;
+          if (showcaseResult.error) throw new Error("Could not load the current event ticket design.");
+          const event = {
+            ...eventResult.data,
+            ticket_design: showcaseResult.data?.ticket_design ?? eventResult.data.ticket_design,
+          } as Event;
           eventTitle = event.title;
           const items = itemResult.data as OrderItem[];
           const { data: existing, error: existingError } = await serviceClient

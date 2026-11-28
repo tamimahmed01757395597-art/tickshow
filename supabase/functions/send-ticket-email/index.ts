@@ -242,7 +242,7 @@ Deno.serve(async (request) => {
     const path = ticketPath(booking.id);
     const bucket = serviceClient.storage.from("ticket-files");
     let pdfBlob: Blob | null = null;
-    if (action !== "resend") {
+    if (action === "download") {
       const existing = await bucket.download(path);
       if (!existing.error && existing.data) pdfBlob = existing.data;
     }
@@ -263,17 +263,12 @@ Deno.serve(async (request) => {
       );
       if (assetClaimError) throw new Error("Could not prepare ticket files.");
       if (!assetClaim) {
-        const retry = await bucket.download(path);
-        if (!retry.error && retry.data) {
-          pdfBlob = retry.data;
-        } else {
-          throw new Error("Your PDF is being prepared. Please try again in a moment.");
-        }
+        throw new Error("Your PDF is being prepared. Please try again in a moment.");
       } else {
         assetsClaimed = true;
         try {
           let pdfBooking = booking as Booking;
-          if (action === "resend" && booking.storefront_event_id) {
+          if (action !== "download" && booking.storefront_event_id) {
             const { data: currentEvent, error: eventError } = await serviceClient
               .from("storefront_events")
               .select("ticket_design, ticket_design_image_path")
